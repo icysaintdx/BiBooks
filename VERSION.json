@@ -1,15 +1,15 @@
 {
-  "version": "v0.2.0",
-  "codename": "核心模块集成版",
-  "releaseDate": "2026-06-05T20:00:00",
+  "version": "v0.3.0",
+  "codename": "行业知识与报价管理版",
+  "releaseDate": "2026-06-05T23:30:00",
   "docs": {
-    "total": 2,
+    "total": 3,
     "feature": 1,
     "bugfix": 0,
     "version": 0,
     "api": 0,
     "guide": 0,
     "technical": 1,
-    "summary": 0
+    "summary": 1
   }
 }

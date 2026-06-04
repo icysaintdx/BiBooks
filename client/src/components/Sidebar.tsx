@@ -13,6 +13,7 @@ interface SidebarProps {
 const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>> = {
   'technical-plan': DocumentIcon,
   'business-bid': BriefcaseIcon,
+  'pricing': CalculatorIcon,
   'knowledge-base': ArchiveIcon,
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,
@@ -136,6 +137,21 @@ function BriefcaseIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M9 8V5.5h6V8" />
       <path d="M5 12.5h14" />
       <path d="M10.5 12.5v2h3v-2" />
+    </svg>
+  );
+}
+
+function CalculatorIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <path d="M8 6h8" />
+      <path d="M8 10h2" />
+      <path d="M14 10h2" />
+      <path d="M8 14h2" />
+      <path d="M14 14h2" />
+      <path d="M8 18h2" />
+      <path d="M14 18h2" />
     </svg>
   );
 }

@@ -1,6 +1,7 @@
 export type SectionId =
   | 'technical-plan'
   | 'business-bid'
+  | 'pricing'
   | 'knowledge-base'
   | 'duplicate-check'
   | 'rejection-check'

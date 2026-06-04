@@ -1,5 +1,39 @@
 # 更新日志
 
+## [v0.3.0] - 2026-06-05 23:30
+**版本代号**: 行业知识与报价管理版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 行业知识库 ⭐
+- **功能**: 行业专属评分权重、常见陷阱、写作要点、关键指标
+- **位置**: `client/electron/services/industryKnowledgeBase.cjs`
+- **支持**: 8个行业的完整知识体系，可生成行业指南Markdown
+
+#### 报价管理前端页面 ⭐
+- **功能**: 报价项CRUD、分类管理、税率计算、汇总统计、Markdown导出
+- **位置**: `client/src/features/pricing/pages/PricingPage.tsx`
+- **集成**: 导航菜单、路由配置完整接入
+
+#### Prompt 模板优化 ⭐
+- **功能**: 所有目录生成Prompt注入行业上下文信息和反AI写作约束
+- **位置**: `client/src/shared/prompts/outlinePrompts.ts`
+- **约束**: 禁用AI典型词汇（赋能、助力、驱动等），使用具体数据代替空泛描述
+
+#### 目录生成行业增强 ⭐
+- **功能**: 目录生成时自动加载行业知识库作为上下文参考
+- **位置**: `client/electron/services/outlineGenerationTask.cjs`
+
+### 🔧 集成优化
+- **行业检测集成**: bidAnalysisTask.cjs 招标分析后自动检测行业
+- **AI去痕集成**: contentGenerationTask.cjs 内容生成后自动去痕处理
+- **报价脱敏集成**: aiService.cjs 所有AI调用自动脱敏敏感金额数据
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
 ## [v0.2.0] - 2026-06-05 20:00
 **版本代号**: 核心模块集成版
 **文档总数**: 2

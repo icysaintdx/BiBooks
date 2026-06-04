@@ -12,6 +12,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '商务响应与报价材料',
   },
   {
+    id: 'pricing',
+    label: '报价管理',
+    description: '报价明细、税率计算与导出',
+  },
+  {
     id: 'knowledge-base',
     label: '知识库',
     description: '素材、模板和案例资产',

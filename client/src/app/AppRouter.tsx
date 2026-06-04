@@ -1,6 +1,7 @@
 import type { SectionId } from '../shared/types/navigation';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
+import PricingPage from '../features/pricing/pages/PricingPage';
 import DeveloperTestPage from '../features/developer/pages/DeveloperTestPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
@@ -19,6 +20,8 @@ function AppRouter({ activeSection, onDeveloperModeChange }: AppRouterProps) {
       return <TechnicalPlanHome />;
     case 'business-bid':
       return <BusinessBidPage />;
+    case 'pricing':
+      return <PricingPage />;
     case 'knowledge-base':
       return <KnowledgeBasePage />;
     case 'duplicate-check':
