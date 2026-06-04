@@ -136,6 +136,7 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, paylo
   const mode = payload.mode || 'key';
   const selectedTasks = getBidAnalysisTasks(mode);
   const fileContent = workspaceStore.readTenderMarkdown();
+  const { detectIndustry } = require('./industryDetector.cjs');
   if (!String(fileContent || '').trim()) {
     throw new Error('请先上传招标文件，再开始解析');
   }
@@ -218,6 +219,19 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, paylo
 
   technicalPlan = workspaceStore.updateTechnicalPlan({ bidAnalysisTask: updateTask({ status: 'success', progress: 100, logs: ['招标文件解析完成。'] }) });
   updateTask({ status: 'success', progress: 100 }, technicalPlan);
+
+  // 行业检测（非阻塞，失败不影响主流程）
+  try {
+    const industry = detectIndustry(fileContent);
+    workspaceStore.updateTechnicalPlan({
+      industryCode: industry.industryCode,
+      industryName: industry.config?.name || '通用行业',
+      industryConfidence: industry.confidence,
+      industryChapterStructure: industry.config?.chapter_structure || [],
+    });
+  } catch (error) {
+    // 行业检测失败不影响主流程
+  }
 }
 
 module.exports = {

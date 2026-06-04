@@ -3,6 +3,27 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { getAiLogsDir, getGeneratedImagesDir } = require('../utils/paths.cjs');
 const { createDeveloperLogger } = require('../utils/developerLog.cjs');
+const { desensitize, resensitize } = require('./desensitization.cjs');
+
+/**
+ * 对 JSON 对象中的所有字符串值进行还原处理
+ * @param {any} obj - JSON 对象
+ * @param {object} mapping - 脱敏映射
+ * @returns {any} 还原后的对象
+ */
+function resensitizeJson(obj, mapping) {
+  if (!mapping || Object.keys(mapping).length === 0) return obj;
+  if (typeof obj === 'string') return resensitize(obj, mapping);
+  if (Array.isArray(obj)) return obj.map((item) => resensitizeJson(item, mapping));
+  if (obj && typeof obj === 'object') {
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = resensitizeJson(value, mapping);
+    }
+    return result;
+  }
+  return obj;
+}
 
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const MAX_AI_LOG_TITLE_LENGTH = 64;
@@ -1126,20 +1147,50 @@ async function generateImageWithConfig(app, config, request) {
 }
 
 function createAiService({ app, configStore }) {
+  /**
+   * 对请求中的消息内容进行脱敏处理
+   * @param {object} request - AI 请求对象
+   * @returns {{ request: object, mapping: object }} - 脱敏后的请求和还原映射
+   */
+  function desensitizeRequest(request) {
+    if (!request?.messages || !Array.isArray(request.messages)) {
+      return { request, mapping: {} };
+    }
+
+    const globalMapping = {};
+    const desensitizedMessages = request.messages.map((msg) => {
+      if (!msg?.content || typeof msg.content !== 'string') return msg;
+      const { text, mapping } = desensitize(msg.content);
+      Object.assign(globalMapping, mapping);
+      return { ...msg, content: text };
+    });
+
+    return {
+      request: { ...request, messages: desensitizedMessages },
+      mapping: globalMapping,
+    };
+  }
+
   return {
     async chat(request) {
       const config = configStore.load();
-      return chatWithConfig(app, config, request);
+      const { request: safeRequest, mapping } = desensitizeRequest(request);
+      const content = await chatWithConfig(app, config, safeRequest);
+      return resensitize(content, mapping);
     },
 
     async requestJson(request) {
       const config = configStore.load();
-      return collectJsonResponseWithConfig(app, config, request);
+      const { request: safeRequest, mapping } = desensitizeRequest(request);
+      const result = await collectJsonResponseWithConfig(app, config, safeRequest);
+      return resensitizeJson(result, mapping);
     },
 
     async collectJsonResponse(request) {
       const config = configStore.load();
-      return collectJsonResponseWithConfig(app, config, request);
+      const { request: safeRequest, mapping } = desensitizeRequest(request);
+      const result = await collectJsonResponseWithConfig(app, config, safeRequest);
+      return resensitizeJson(result, mapping);
     },
 
     async parseJsonResponseContent(request, content) {

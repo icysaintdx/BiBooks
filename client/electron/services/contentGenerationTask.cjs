@@ -1832,9 +1832,13 @@ function stripMarkdownHeadingsFromLeafContent(content) {
 }
 
 function normalizeLeafContentForSave(content, chapter) {
-  return stripMarkdownHeadingsFromLeafContent(
+  const { humanize } = require('./humanizer.cjs');
+  const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
+  // AI 去痕处理：去除 AI 生成痕迹，使内容更自然
+  const { text } = humanize(normalized);
+  return text;
 }
 
 function appendGeneratedImageMarkdown(content, imagePlan, generatedImage) {
