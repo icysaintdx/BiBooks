@@ -3,7 +3,7 @@ import type { OutlineData, OutlineMode } from '../../shared/types';
 export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand';
 export type BidAnalysisMode = 'key' | 'full';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
-export type BackgroundTaskType = 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation';
+export type BackgroundTaskType = 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation' | 'scoring-analysis';
 export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' | 'error';
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error';
 export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
@@ -156,6 +156,31 @@ export interface TechnicalPlanTenderFile {
   updatedAt: string;
 }
 
+export interface ScoringSubItem {
+  name: string;
+  score: number;
+  description: string;
+}
+
+export interface ScoringItem {
+  id: string;
+  category: string;
+  totalScore: number;
+  percentage: number;
+  priority: 'high' | 'medium' | 'low';
+  description: string;
+  subItems: ScoringSubItem[];
+}
+
+export interface ScoringAnalysisResult {
+  scoringItems: ScoringItem[];
+  distribution: Record<string, number>;
+  recommendations: string[];
+  totalScore: number;
+  analysisSummary: string;
+  analysisDate: string;
+}
+
 export interface TechnicalPlanState {
   step: TechnicalPlanStep;
   tenderFile: TechnicalPlanTenderFile | null;
@@ -176,4 +201,6 @@ export interface TechnicalPlanState {
   contentGenerationPlans: ContentGenerationPlans;
   contentGenerationRuntime?: ContentGenerationRuntimeState;
   outlineData: OutlineData | null;
+  scoringAnalysis?: ScoringAnalysisResult;
+  scoringAnalysisTask?: BackgroundTaskState;
 }

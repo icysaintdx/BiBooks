@@ -17,6 +17,10 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startContentGeneration(payload);
   });
+  ipcMain.handle('tasks:start-scoring-analysis', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startScoringAnalysis(payload);
+  });
   ipcMain.handle('tasks:pause-content-generation', (event) => {
     taskService.subscribe(event.sender);
     return taskService.pauseContentGeneration();

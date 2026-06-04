@@ -1,7 +1,9 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useState } from 'react';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
 import { MarkdownRenderer, useToast } from '../../../shared/ui';
-import type { BackgroundTaskState, BidAnalysisMode, BidAnalysisTasks, BidAnalysisTaskState } from '../types';
+import type { BackgroundTaskState, BidAnalysisMode, BidAnalysisTasks, BidAnalysisTaskState, ScoringAnalysisResult } from '../types';
+import ScoringAnalysisPage from './ScoringAnalysisPage';
 
 interface BidAnalysisPageProps {
   hasTenderFile: boolean;
@@ -9,10 +11,14 @@ interface BidAnalysisPageProps {
   tasks: BidAnalysisTasks;
   task?: BackgroundTaskState;
   progress: number;
+  techRequirements: string;
+  scoringAnalysis?: ScoringAnalysisResult;
+  scoringAnalysisTask?: BackgroundTaskState;
   onModeChange: (mode: BidAnalysisMode) => void;
   onTasksChange: (updater: (prev: BidAnalysisTasks) => BidAnalysisTasks) => void;
   onProgressChange: (progress: number) => void;
   onRequiredResultChange: (projectOverview: string, techRequirements: string) => void;
+  onScoringAnalysisStart: () => void;
 }
 
 const modeOptions: Array<{ id: BidAnalysisMode; title: string; desc: string; badge: string }> = [
@@ -159,16 +165,21 @@ function BidAnalysisPage({
   tasks,
   task,
   progress,
+  techRequirements,
+  scoringAnalysis,
+  scoringAnalysisTask,
   onModeChange,
   onTasksChange,
   onProgressChange,
   onRequiredResultChange,
+  onScoringAnalysisStart,
 }: BidAnalysisPageProps) {
   const [running, setRunning] = useState(false);
   const [fullRerunLocked, setFullRerunLocked] = useState(false);
   const [fullRerunSeenRunning, setFullRerunSeenRunning] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState('projectOverview');
   const [progressCollapsed, setProgressCollapsed] = useState(false);
+  const [scoringDialogOpen, setScoringDialogOpen] = useState(false);
   const { showToast } = useToast();
   const selectedTasks = useMemo(() => getBidAnalysisTasks(mode), [mode]);
   const requiredTasks = useMemo(() => getBidAnalysisTasks('key'), []);
@@ -287,9 +298,41 @@ function BidAnalysisPage({
             </button>
           ))}
         </div>
-        <button type="button" className="primary-action" onClick={() => startAnalysis()} disabled={taskRunning || !hasTenderFile}>
-          {taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
-        </button>
+        <div className="bid-analysis-command-actions">
+          <Dialog.Root open={scoringDialogOpen} onOpenChange={setScoringDialogOpen}>
+            <Dialog.Trigger asChild>
+              <button
+                type="button"
+                className="secondary-action"
+                disabled={!techRequirements.trim()}
+                title={!techRequirements.trim() ? '请先完成招标文件解析，获取技术评分要求' : '智能分析评分结构'}
+              >
+                评分分析
+              </button>
+            </Dialog.Trigger>
+            <Dialog.Portal>
+              <Dialog.Overlay className="dialog-overlay" />
+              <Dialog.Content className="dialog-content scoring-analysis-dialog">
+                <Dialog.Title className="dialog-title">智能评分分析</Dialog.Title>
+                <Dialog.Description className="dialog-description">
+                  自动解析技术评分要求，提取评分大类、权重分布和编写建议。
+                </Dialog.Description>
+                <ScoringAnalysisPage
+                  hasTechRequirements={!!techRequirements.trim()}
+                  analysis={scoringAnalysis}
+                  task={scoringAnalysisTask}
+                  onStartAnalysis={onScoringAnalysisStart}
+                />
+                <Dialog.Close asChild>
+                  <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
+                </Dialog.Close>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+          <button type="button" className="primary-action" onClick={() => startAnalysis()} disabled={taskRunning || !hasTenderFile}>
+            {taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
+          </button>
+        </div>
       </section>
 
       <section className="bid-analysis-workspace">

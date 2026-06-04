@@ -49,6 +49,8 @@ const resetState = {
   contentGenerationPlans: {},
   contentGenerationRuntime: undefined,
   outlineData: null,
+  scoringAnalysis: undefined,
+  scoringAnalysisTask: undefined,
 };
 
 function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
@@ -280,6 +282,14 @@ function TechnicalPlanHome() {
             contentGenerationPlans: hasOwnField(technicalPlan, 'contentGenerationPlans') ? (technicalPlan.contentGenerationPlans || {}) : prev.contentGenerationPlans,
             contentGenerationRuntime: hasOwnField(technicalPlan, 'contentGenerationRuntime') ? technicalPlan.contentGenerationRuntime : prev.contentGenerationRuntime,
             outlineData: nextOutlineData,
+          };
+        }
+
+        if (taskType === 'scoring-analysis') {
+          return {
+            ...prev,
+            scoringAnalysisTask: trimTaskLogs(technicalPlan.scoringAnalysisTask) || latestTask,
+            scoringAnalysis: hasOwnField(technicalPlan, 'scoringAnalysis') ? technicalPlan.scoringAnalysis : prev.scoringAnalysis,
           };
         }
 
@@ -537,6 +547,9 @@ function TechnicalPlanHome() {
           tasks={state.bidAnalysisTasks}
           task={state.bidAnalysisTask}
           progress={state.bidAnalysisProgress}
+          techRequirements={state.techRequirements}
+          scoringAnalysis={state.scoringAnalysis}
+          scoringAnalysisTask={state.scoringAnalysisTask}
           onModeChange={(mode) => setState((prev) => ({ ...prev, bidAnalysisMode: mode }))}
           onTasksChange={(updater) => setState((prev) => ({ ...prev, bidAnalysisTasks: updater(prev.bidAnalysisTasks) }))}
           onProgressChange={(progress) => setState((prev) => ({ ...prev, bidAnalysisProgress: progress }))}
@@ -545,6 +558,11 @@ function TechnicalPlanHome() {
             projectOverview,
             techRequirements,
           }))}
+          onScoringAnalysisStart={() => {
+            window.yibiao?.tasks.startScoringAnalysis({}).catch((error) => {
+              showToast(error instanceof Error ? error.message : '启动评分分析失败', 'error');
+            });
+          }}
         />
       )}
       {state.step === 'outline-generation' && (

@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 4;
+const schemaVersion = 5;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -622,6 +622,12 @@ function createKnowledgeBaseSchema(db) {
   `);
 }
 
+function createScoringAnalysisSchema(db) {
+  db.exec(`
+    ALTER TABLE technical_plan_meta ADD COLUMN scoring_analysis_json TEXT;
+  `);
+}
+
 const migrations = [
   {
     version: 1,
@@ -642,6 +648,11 @@ const migrations = [
     version: 4,
     description: '新增技术方案全局事实表结构',
     up: createTechnicalPlanGlobalFactsSchema,
+  },
+  {
+    version: 5,
+    description: '新增评分分析 JSON 字段',
+    up: createScoringAnalysisSchema,
   },
 ];
 

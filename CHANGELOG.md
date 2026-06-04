@@ -1,5 +1,26 @@
 # 更新日志
 
+## [v0.4.0] - 2026-06-06 00:30
+**版本代号**: 智能评分分析版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 智能评分分析模块 ⭐
+- **功能**: 自动解析技术评分要求，提取评分大类、权重分布、子项详情，生成内容编写建议
+- **后端**: `client/electron/services/scoringAnalysisTask.cjs`
+- **前端**: `client/src/features/technical-plan/pages/ScoringAnalysisPage.tsx`
+- **集成**: 招标文件解析页面新增"评分分析"按钮，弹窗展示分析结果
+- **存储**: 评分分析结果持久化到 SQLite，支持跨会话查看
+
+#### 数据库升级 ⭐
+- **版本**: schemaVersion 4 → 5
+- **变更**: technical_plan_meta 表新增 scoring_analysis_json 字段
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
 ## [v0.3.0] - 2026-06-05 23:30
 **版本代号**: 行业知识与报价管理版
 **文档总数**: 3

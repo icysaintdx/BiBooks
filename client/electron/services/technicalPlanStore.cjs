@@ -27,6 +27,8 @@ const initialState = {
   contentGenerationPlans: {},
   contentGenerationRuntime: undefined,
   outlineData: null,
+  scoringAnalysis: undefined,
+  scoringAnalysisTask: undefined,
 };
 
 const taskFieldTypes = {
@@ -34,6 +36,7 @@ const taskFieldTypes = {
   outlineGenerationTask: 'outline-generation',
   globalFactsTask: 'global-facts-generation',
   contentGenerationTask: 'content-generation',
+  scoringAnalysisTask: 'scoring-analysis',
 };
 
 const taskTypeFields = Object.fromEntries(Object.entries(taskFieldTypes).map(([field, type]) => [type, field]));
@@ -606,6 +609,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       outline_project_overview: null,
       content_generation_options_json: null,
       content_generation_runtime_json: null,
+      scoring_analysis_json: null,
     });
   }
 
@@ -632,6 +636,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     if (hasOwn(partial, 'outlineMode') && isValidOutlineMode(partial.outlineMode)) metaUpdates.outline_mode = partial.outlineMode;
     if (hasOwn(partial, 'contentGenerationOptions')) metaUpdates.content_generation_options_json = jsonOrNull(partial.contentGenerationOptions);
     if (hasOwn(partial, 'contentGenerationRuntime')) metaUpdates.content_generation_runtime_json = jsonOrNull(partial.contentGenerationRuntime);
+    if (hasOwn(partial, 'scoringAnalysis')) metaUpdates.scoring_analysis_json = jsonOrNull(partial.scoringAnalysis);
 
     if (Object.keys(metaUpdates).length) updateMeta(metaUpdates);
 
@@ -696,6 +701,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       contentGenerationSections: loadContentSections(outlineData),
       contentGenerationPlans: loadContentPlans(),
       outlineData,
+      scoringAnalysis: safeJsonParse(meta.scoring_analysis_json, undefined),
     };
   }
 

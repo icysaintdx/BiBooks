@@ -4,6 +4,7 @@ const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTask } = require('./globalFactsTask.cjs');
 const { runOutlineGenerationTask } = require('./outlineGenerationTask.cjs');
 const { runRejectionCheckTask, runRejectionItemsExtractionTask } = require('./rejectionCheckTask.cjs');
+const { runScoringAnalysisTask } = require('./scoringAnalysisTask.cjs');
 
 const taskDefinitions = {
   'bid-analysis': {
@@ -41,6 +42,15 @@ const taskDefinitions = {
     lockPolicy: 'group-exclusive',
     stateKey: 'technicalPlan',
     field: 'contentGenerationTask',
+  },
+  'scoring-analysis': {
+    label: '智能评分分析',
+    group: 'technical-plan',
+    groupLabel: '技术方案',
+    step: 6,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'scoringAnalysisTask',
   },
   'rejection-items-extraction': {
     label: '无效与废标项解析',
@@ -288,6 +298,12 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
           'contentGenerationPlans',
           'contentGenerationRuntime',
         ]);
+      }
+    }
+
+    if (task.type === 'scoring-analysis') {
+      if (!isActiveTaskStatus(task.status)) {
+        copyPatchFields(patch, state, ['scoringAnalysis']);
       }
     }
 
@@ -675,6 +691,9 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     },
     startContentGeneration(payload) {
       return startManagedTask('content-generation', payload, runContentGenerationTask);
+    },
+    startScoringAnalysis(payload) {
+      return startManagedTask('scoring-analysis', payload, runScoringAnalysisTask);
     },
     pauseContentGeneration() {
       const task = activeTasks.get('content-generation');
