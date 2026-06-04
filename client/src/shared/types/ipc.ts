@@ -52,6 +52,50 @@ export interface UpdateCheckResult {
   message?: string;
 }
 
+export interface VersionSummary {
+  id: string;
+  name: string;
+  description: string;
+  step: string;
+  outlineNodeCount: number;
+  contentWordCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VersionSaveResult {
+  id: string;
+  name: string;
+  outlineNodeCount: number;
+  contentWordCount: number;
+  createdAt: string;
+}
+
+export interface VersionDetail {
+  id: string;
+  name: string;
+  description: string;
+  snapshot: unknown;
+  createdAt: string;
+}
+
+export interface VersionChangeItem {
+  type: 'added' | 'modified' | 'removed';
+  id: string;
+  title: string;
+  fields?: Array<{ field: string; old?: string; new?: string; oldLength?: number; newLength?: number }>;
+}
+
+export interface VersionComparison {
+  version1: { id: string; name: string; date: string };
+  version2: { id: string; name: string; date: string };
+  outlineChanges: VersionChangeItem[];
+  totalChanges: number;
+  addedCount: number;
+  modifiedCount: number;
+  removedCount: number;
+}
+
 export interface YibiaoBridge {
   appName: string;
   platform: string;
@@ -133,6 +177,16 @@ export interface YibiaoBridge {
     startDuplicateAnalysis: (payload: unknown) => Promise<unknown>;
     getActiveTasks: () => Promise<unknown[]>;
     onTaskEvent: <TState = unknown, TRejectionCheckState = unknown, TDuplicateCheckState = unknown>(callback: (event: TaskEvent<TState, TRejectionCheckState, TDuplicateCheckState>) => void) => () => void;
+  };
+  versions: {
+    list: () => Promise<VersionSummary[]>;
+    save: (payload: { name?: string; description?: string }) => Promise<VersionSaveResult>;
+    load: (id: string) => Promise<VersionDetail | null>;
+    restore: (id: string) => Promise<{ success: boolean; name: string }>;
+    delete: (id: string) => Promise<boolean>;
+    update: (payload: { id: string; name?: string; description?: string }) => Promise<boolean>;
+    compare: (payload: { versionId1: string; versionId2: string }) => Promise<VersionComparison>;
+    count: () => Promise<number>;
   };
   export: {
     exportWord: (payload: unknown) => Promise<WordExportResult>;

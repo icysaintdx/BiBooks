@@ -9,6 +9,7 @@ const { registerKnowledgeBaseIpc } = require('./knowledgeBaseIpc.cjs');
 const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
+const { registerVersionManagementIpc } = require('./versionManagementIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createConfigStore } = require('../services/configStore.cjs');
 const { createDuplicateCheckService } = require('../services/duplicateCheckService.cjs');
@@ -21,6 +22,7 @@ const { createRejectionCheckStore } = require('../services/rejectionCheckStore.c
 const { createSqliteDatabase } = require('../services/sqliteDatabase.cjs');
 const { createTaskService } = require('../services/taskService.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
+const { createVersionManagementStore } = require('../services/versionManagement.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -110,8 +112,10 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore });
     const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
     const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService });
+    const versionManagementStore = createVersionManagementStore({ db: sqliteDatabase.db });
     registerKnowledgeBaseIpc({ knowledgeBaseService });
     registerTechnicalPlanIpc({ technicalPlanStore });
+    registerVersionManagementIpc({ versionManagementStore, technicalPlanStore });
     registerDuplicateCheckIpc({ duplicateCheckStore });
     registerRejectionCheckIpc({ rejectionCheckStore });
     registerTaskIpc({ taskService });

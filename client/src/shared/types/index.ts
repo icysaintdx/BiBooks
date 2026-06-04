@@ -44,7 +44,7 @@ export type {
 } from './config';
 export type { AppMenuItem, SectionId } from './navigation';
 export type { OutlineData, OutlineItem, OutlineMode, TechnicalRequirementGroup } from './outline';
-export type { LatestReleaseInfo, UpdateCheckResult, WordExportProgressEvent, WordExportResult, YibiaoBridge } from './ipc';
+export type { LatestReleaseInfo, UpdateCheckResult, VersionChangeItem, VersionComparison, VersionDetail, VersionSaveResult, VersionSummary, WordExportProgressEvent, WordExportResult, YibiaoBridge } from './ipc';
 export type {
   RejectionCheckFinding,
   RejectionCheckResultState,

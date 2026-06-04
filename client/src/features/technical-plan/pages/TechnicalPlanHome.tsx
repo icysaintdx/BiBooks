@@ -5,6 +5,7 @@ import BidAnalysisPage from './BidAnalysisPage';
 import OutlineEditPage from './OutlineEditPage';
 import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
+import VersionManagementPage from './VersionManagementPage';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
@@ -139,6 +140,7 @@ function TechnicalPlanHome() {
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
   const [exportProgress, setExportProgress] = useState<ExportProgressState>(initialExportProgress);
+  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const activeIndex = steps.indexOf(state.step);
   const bidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
@@ -519,6 +521,13 @@ function TechnicalPlanHome() {
           tooltip: '回到上传招标文件',
           onClick: () => switchStep('document-analysis'),
         },
+        {
+          id: 'versions',
+          label: '版本',
+          variant: 'secondary' as const,
+          tooltip: '版本管理：保存、查看、恢复历史版本',
+          onClick: () => setVersionDialogOpen(true),
+        },
       ],
     },
     {
@@ -669,6 +678,23 @@ function TechnicalPlanHome() {
                 <Dialog.Close className="primary-action" type="button">知道了</Dialog.Close>
               </div>
             )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* 版本管理对话框 */}
+      <Dialog.Root open={versionDialogOpen} onOpenChange={setVersionDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content version-management-dialog">
+            <Dialog.Title className="dialog-title">版本管理</Dialog.Title>
+            <Dialog.Description className="dialog-description">
+              保存当前工作进度，查看历史版本，支持版本对比和恢复。
+            </Dialog.Description>
+            <VersionManagementPage onRestore={() => setVersionDialogOpen(false)} />
+            <Dialog.Close asChild>
+              <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
+            </Dialog.Close>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

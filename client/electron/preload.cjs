@@ -103,6 +103,16 @@ const bridge = {
       return () => ipcRenderer.removeListener('tasks:event', listener);
     },
   },
+  versions: {
+    list: () => ipcRenderer.invoke('versions:list'),
+    save: (payload) => ipcRenderer.invoke('versions:save', payload),
+    load: (id) => ipcRenderer.invoke('versions:load', id),
+    restore: (id) => ipcRenderer.invoke('versions:restore', id),
+    delete: (id) => ipcRenderer.invoke('versions:delete', id),
+    update: (payload) => ipcRenderer.invoke('versions:update', payload),
+    compare: (payload) => ipcRenderer.invoke('versions:compare', payload),
+    count: () => ipcRenderer.invoke('versions:count'),
+  },
   export: {
     exportWord: (payload) => ipcRenderer.invoke('export:word', payload),
     onWordExportProgress: (callback) => {
