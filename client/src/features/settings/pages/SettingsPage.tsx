@@ -1302,7 +1302,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           </div>
           <div className="about-grid">
             <div><span>当前版本</span><strong>{appVersion || '...'}</strong></div>
-            <div><span>GitHub 仓库</span><a href="https://github.com/FB208/OpenBidKit_Yibiao" target="_blank" rel="noreferrer">FB208/OpenBidKit_Yibiao</a></div>
+            <div><span>基于</span><span>OpenBidKit 二次开发</span></div>
             <div>
               <span>自动更新</span>
               <strong>{updateStatusText}</strong>
