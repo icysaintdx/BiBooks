@@ -5,6 +5,7 @@ export interface BuildOutlineMessagesInput {
   requirements: string;
   oldOutline?: string;
   suggestions?: string[];
+  industryContext?: string;
 }
 
 export interface BuildChildrenOutlineMessagesInput extends BuildOutlineMessagesInput {
@@ -18,6 +19,20 @@ function formatSuggestions(suggestions?: string[]) {
   }
 
   return `\n\n本轮修正建议：\n${suggestions.map((item, index) => `${index + 1}. ${item}`).join('\n')}`;
+}
+
+function formatIndustryContext(industryContext?: string) {
+  if (!industryContext) return '';
+  return `\n\n行业参考信息：\n${industryContext}`;
+}
+
+function antiAiInstruction() {
+  return `
+写作约束（必须严格遵守）：
+- 禁止使用以下 AI 典型词汇：赋能、助力、驱动、引领、生态、闭环、抓手、颗粒度、底层逻辑、顶层设计、降维打击
+- 禁止使用以下填充短语开头：首先、其次、再次、最后、一方面、另一方面、众所周知、显而易见
+- 使用具体数据和事实代替空泛描述
+- 语言要朴实、专业、有说服力，避免夸大性表述`;
 }
 
 function outlineSystemPrompt() {
@@ -68,12 +83,13 @@ JSON 格式要求：
 { "outline": [{ "id": "1", "title": "", "description": "" }] }`;
 }
 
-export function buildOutlineMessages({ overview, requirements, oldOutline, suggestions }: BuildOutlineMessagesInput): ChatMessage[] {
+export function buildOutlineMessages({ overview, requirements, oldOutline, suggestions, industryContext }: BuildOutlineMessagesInput): ChatMessage[] {
   return [
     { role: 'system', content: outlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
     ...(oldOutline ? [{ role: 'user' as const, content: `用户自己编写的目录：\n${oldOutline}` }] : []),
+    ...(industryContext ? [{ role: 'user' as const, content: `行业参考信息：\n${industryContext}` }] : []),
     {
       role: 'user',
       content: oldOutline
@@ -83,12 +99,13 @@ export function buildOutlineMessages({ overview, requirements, oldOutline, sugge
   ];
 }
 
-export function buildTopLevelOutlineMessages({ overview, requirements, oldOutline, suggestions }: BuildOutlineMessagesInput): ChatMessage[] {
+export function buildTopLevelOutlineMessages({ overview, requirements, oldOutline, suggestions, industryContext }: BuildOutlineMessagesInput): ChatMessage[] {
   return [
     { role: 'system', content: topLevelSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
     ...(oldOutline ? [{ role: 'user' as const, content: `用户自己编写的目录：\n${oldOutline}` }] : []),
+    ...(industryContext ? [{ role: 'user' as const, content: `行业参考信息：\n${industryContext}` }] : []),
     {
       role: 'user',
       content: oldOutline
@@ -119,7 +136,7 @@ JSON 格式要求：
   ];
 }
 
-export function buildChildrenOutlineMessages({ overview, requirements, parentItem, oldOutline, suggestions }: BuildChildrenOutlineMessagesInput): ChatMessage[] {
+export function buildChildrenOutlineMessages({ overview, requirements, parentItem, oldOutline, suggestions, industryContext }: BuildChildrenOutlineMessagesInput): ChatMessage[] {
   const parentId = parentItem.id || '1';
   const parentTitle = parentItem.title || '未命名一级目录';
   const parentDescription = parentItem.description || '';
@@ -135,17 +152,18 @@ export function buildChildrenOutlineMessages({ overview, requirements, parentIte
 3. children 中只能包含当前一级目录的直接子目录，每个节点必须包含 id、title、description。
 4. 二级目录下如有三级目录，同样使用 children 字段。
 5. 章节编号必须以给定的一级目录编号为前缀，例如父级是 2，则二级目录编号从 2.1 开始，三级目录编号从 2.1.1 开始。
-6. 只返回 JSON，不要输出其他内容。`,
+6. 只返回 JSON，不要输出其他内容。${antiAiInstruction()}`,
     },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
     ...(oldOutline ? [{ role: 'user' as const, content: `用户自己编写的目录：\n${oldOutline}` }] : []),
+    ...(industryContext ? [{ role: 'user' as const, content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `当前一级目录：\n编号：${parentId}\n标题：${parentTitle}\n描述：${parentDescription}` },
     { role: 'user', content: `请仅生成该一级目录下的二级、三级目录，返回格式必须是 {"children": [...]}。${formatSuggestions(suggestions)}` },
   ];
 }
 
-export function buildAlignedChildrenOutlineMessages({ overview, requirements, parentItem, requirementGroup, oldOutline, suggestions }: BuildChildrenOutlineMessagesInput): ChatMessage[] {
+export function buildAlignedChildrenOutlineMessages({ overview, requirements, parentItem, requirementGroup, oldOutline, suggestions, industryContext }: BuildChildrenOutlineMessagesInput): ChatMessage[] {
   const detailPoints = requirementGroup?.detail_points?.filter(Boolean).map((item) => `- ${item}`).join('\n') || '- 未提供明确细项，请根据评分大类描述合理展开';
 
   return [
@@ -159,11 +177,12 @@ export function buildAlignedChildrenOutlineMessages({ overview, requirements, pa
 3. 二级和三级目录要覆盖当前技术评分大类及其细项，不能越界写入其他评分大类内容。
 4. 返回标准 JSON，格式为 {"children": [...]}。
 5. 章节编号必须以给定的一级目录编号为前缀。
-6. 只返回 JSON，不要输出其他内容。`,
+6. 只返回 JSON，不要输出其他内容。${antiAiInstruction()}`,
     },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求原文：\n${requirements}` },
     ...(oldOutline ? [{ role: 'user' as const, content: `用户自己编写的目录参考：\n${oldOutline}` }] : []),
+    ...(industryContext ? [{ role: 'user' as const, content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `当前固定一级目录：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description}` },
     { role: 'user', content: `当前对应的技术评分大类：\nrequirement_id：${requirementGroup?.requirement_id || ''}\n标题：${requirementGroup?.title || ''}\n描述：${requirementGroup?.description || ''}\n细项：\n${detailPoints}` },
     { role: 'user', content: `请仅生成该一级目录下的二级、三级目录，一级目录标题必须保持为当前给定标题，返回格式必须是 {"children": [...]}。${formatSuggestions(suggestions)}` },

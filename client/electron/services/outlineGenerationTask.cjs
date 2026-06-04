@@ -145,20 +145,22 @@ JSON 格式要求：
 }`;
 }
 
-function generateOutlineMessages({ overview, requirements, suggestions }) {
+function generateOutlineMessages({ overview, requirements, suggestions, industryContext }) {
   return [
     { role: 'system', content: outlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
+    ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `请生成完整的技术标目录结构，确保覆盖所有技术评分要点。${formatSuggestions(suggestions)}` },
   ];
 }
 
-function generateTopLevelOutlineMessages({ overview, requirements, suggestions }) {
+function generateTopLevelOutlineMessages({ overview, requirements, suggestions, industryContext }) {
   return [
     { role: 'system', content: topLevelOutlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
+    ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `请仅生成一级目录列表，不要生成二级和三级目录。返回的 JSON 仍然使用 outline 字段，每个一级目录都必须包含 id、title、description。${formatSuggestions(suggestions)}` },
   ];
 }
@@ -193,7 +195,7 @@ JSON 格式要求：
   ];
 }
 
-function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, suggestions }) {
+function generateAlignedChildrenMessages({ overview, requirements, parentItem, group, suggestions, industryContext }) {
   const detailLines = (group.detail_points || [])
     .filter((item) => typeof item === 'string' && item.trim())
     .map((item) => `- ${item}`)
@@ -213,6 +215,7 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求原文：\n${requirements}` },
+    ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `当前固定一级目录：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
     { role: 'user', content: `当前对应的技术评分大类：\nrequirement_id：${group.requirement_id}\n标题：${group.title}\n描述：${group.description}\n细项：\n${detailContent}` },
   ];
@@ -220,12 +223,12 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
   return messages;
 }
 
-function generateChildrenMessages({ overview, requirements, parentItem, suggestions }) {
+function generateChildrenMessages({ overview, requirements, parentItem, suggestions, industryContext }) {
   const systemPrompt = `你是一个专业的标书编写专家。请围绕指定的一级目录，生成其下属的二级目录和三级目录。
 
 要求：
 1. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身
-2. 返回标准 JSON，格式为 {"children": [...]} 
+2. 返回标准 JSON，格式为 {"children": [...]}
 3. children 中只能包含当前一级目录的直接子目录，每个节点必须包含 id、title、description
 4. 二级目录下如有三级目录，同样使用 children 字段
 5. 章节编号必须以给定的一级目录编号为前缀，例如父级是 2，则二级目录编号从 2.1 开始，三级目录编号从 2.1.1 开始
@@ -234,6 +237,7 @@ function generateChildrenMessages({ overview, requirements, parentItem, suggesti
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
+    ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
     { role: 'user', content: `当前一级目录：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
   ];
   messages.push({ role: 'user', content: `请仅生成该一级目录下的二级、三级目录，返回格式必须是 {"children": [...]}。${formatSuggestions(suggestions)}` });
@@ -1000,6 +1004,18 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
   const overview = storedPlan.projectOverview || '';
   const requirements = storedPlan.techRequirements || '';
   const missingRequiredBidAnalysisLabels = getMissingRequiredBidAnalysisLabels(storedPlan);
+
+  // 加载行业上下文（由 bidAnalysisTask 自动检测）
+  const { generateIndustryGuideMarkdown } = require('./industryKnowledgeBase.cjs');
+  let industryContext = '';
+  if (storedPlan.industryCode) {
+    try {
+      industryContext = generateIndustryGuideMarkdown(storedPlan.industryCode);
+      log(`已加载 ${storedPlan.industryName || '通用'} 行业知识。`);
+    } catch (error) {
+      // 行业知识加载失败不影响主流程
+    }
+  }
   if (missingRequiredBidAnalysisLabels.length) {
     throw new Error(`请先完成关键招标文件解析项：${missingRequiredBidAnalysisLabels.join('、')}`);
   }
@@ -1013,6 +1029,7 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
     ...payload,
     overview,
     requirements,
+    industryContext,
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
   };
   let outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
