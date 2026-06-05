@@ -26,7 +26,10 @@ const {
   TextRun,
   UnderlineType,
   WidthType,
+  PageBreak,
 } = require('docx');
+const { generateCoverParagraphs } = require('./coverGenerator.cjs');
+const { generateTocParagraphs } = require('./tocGenerator.cjs');
 
 const MAX_IMAGE_WIDTH = 520;
 const NUMBERING_REFERENCE_PREFIX = 'technical-plan-numbering';
@@ -1105,7 +1108,33 @@ async function buildDocxResult(payload, options = {}) {
     stats,
     content_metrics: countOutlineContentMetrics(payload.outline || []),
   });
+
+  // 生成封面页
+  const coverOptions = {
+    projectName: payload.project_name || '投标项目',
+    bidderName: payload.bidder_name || payload.bidderName || '',
+    tendererName: payload.tenderer_name || payload.tendererName || '',
+    date: payload.date || '',
+    formatStandard: payload.format_standard || payload.formatStandard || 'government',
+    docType: payload.doc_type || payload.docType || '技术标',
+  };
+  const coverParagraphs = generateCoverParagraphs(coverOptions);
+
+  // 生成目录页
+  const tocOptions = {
+    outline: payload.outline || [],
+    formatStandard: payload.format_standard || payload.formatStandard || 'government',
+    autoToc: true,
+    staticToc: true,
+  };
+  const tocParagraphs = generateTocParagraphs(tocOptions);
+
+  // 封面 + 分页符 + 目录 + 分页符 + 正文内容
   const children = [
+    ...coverParagraphs,
+    new Paragraph({ children: [new PageBreak()] }),
+    ...tocParagraphs,
+    new Paragraph({ children: [new PageBreak()] }),
     paragraph([textRun('内容由 AI 生成', { italics: true, size: 18 })], { alignment: AlignmentType.CENTER, after: 120 }),
     paragraph([textRun(payload.project_name || '投标技术文件', { bold: true, size: 34 })], { alignment: AlignmentType.CENTER, after: 300 }),
   ];

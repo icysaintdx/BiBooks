@@ -159,6 +159,68 @@ const bridge = {
       return () => ipcRenderer.removeListener('export:word-progress', listener);
     },
   },
+  cover: {
+    generate: (options) => ipcRenderer.invoke('cover:generate', options),
+  },
+  toc: {
+    generate: (options) => ipcRenderer.invoke('toc:generate', options),
+  },
+  placeholder: {
+    analyze: (content) => ipcRenderer.invoke('placeholder:analyze', content),
+    analyzeChapters: (chapters) => ipcRenderer.invoke('placeholder:analyze-chapters', chapters),
+    autoInsert: (content) => ipcRenderer.invoke('placeholder:auto-insert', content),
+    list: (type) => ipcRenderer.invoke('placeholder:list', type),
+    insert: (content, name, position) => ipcRenderer.invoke('placeholder:insert', content, name, position),
+  },
+  template: {
+    listIndustries: () => ipcRenderer.invoke('template:list-industries'),
+    getIndustry: (industryCode) => ipcRenderer.invoke('template:get-industry', industryCode),
+    getCommon: () => ipcRenderer.invoke('template:get-common'),
+    generateOutline: (industryCode) => ipcRenderer.invoke('template:generate-outline', industryCode),
+    getReference: (industryCode) => ipcRenderer.invoke('template:get-reference', industryCode),
+  },
+  documentSplitter: {
+    extract: (filePath) => ipcRenderer.invoke('document-splitter:extract', filePath),
+    split: (filePath) => ipcRenderer.invoke('document-splitter:split', filePath),
+    extractInfo: (sections) => ipcRenderer.invoke('document-splitter:extract-info', sections),
+    generateReport: (splitResult) => ipcRenderer.invoke('document-splitter:generate-report', splitResult),
+  },
+  taskRetry: {
+    getQueueStatus: () => ipcRenderer.invoke('task-retry:get-queue-status'),
+    cancelAll: () => ipcRenderer.invoke('task-retry:cancel-all'),
+    getConfig: () => ipcRenderer.invoke('task-retry:get-config'),
+  },
+  docxTemplate: {
+    process: (template, context) => ipcRenderer.invoke('docx-template:process', template, context),
+    extractVariables: (template) => ipcRenderer.invoke('docx-template:extract-variables', template),
+    validate: (variables, context) => ipcRenderer.invoke('docx-template:validate', variables, context),
+    generateReport: (template, context) => ipcRenderer.invoke('docx-template:generate-report', template, context),
+  },
+  commercialBid: {
+    generate: (options) => ipcRenderer.invoke('commercial-bid:generate', options),
+    generatePrice: (options) => ipcRenderer.invoke('commercial-bid:generate-price', options),
+    generateTerms: (options) => ipcRenderer.invoke('commercial-bid:generate-terms', options),
+    generateQualifications: (options) => ipcRenderer.invoke('commercial-bid:generate-qualifications', options),
+    generatePerformance: (options) => ipcRenderer.invoke('commercial-bid:generate-performance', options),
+    generateFinancial: (options) => ipcRenderer.invoke('commercial-bid:generate-financial', options),
+    generateService: (options) => ipcRenderer.invoke('commercial-bid:generate-service', options),
+    generateReport: (commercialBid) => ipcRenderer.invoke('commercial-bid:generate-report', commercialBid),
+    getSections: () => ipcRenderer.invoke('commercial-bid:get-sections'),
+    getPriceTemplates: () => ipcRenderer.invoke('commercial-bid:get-price-templates'),
+    getQualificationTypes: () => ipcRenderer.invoke('commercial-bid:get-qualification-types'),
+  },
+  bidOpportunity: {
+    create: (data) => ipcRenderer.invoke('bid-opportunity:create', data),
+    analyze: (opportunity, analysisData) => ipcRenderer.invoke('bid-opportunity:analyze', opportunity, analysisData),
+    generateRecommendation: (analysisResult) => ipcRenderer.invoke('bid-opportunity:generate-recommendation', analysisResult),
+    updateStatus: (opportunity, newStatus, notes) => ipcRenderer.invoke('bid-opportunity:update-status', opportunity, newStatus, notes),
+    generateCalendar: (opportunities) => ipcRenderer.invoke('bid-opportunity:generate-calendar', opportunities),
+    analyzeCompetition: (opportunity, competitors) => ipcRenderer.invoke('bid-opportunity:analyze-competition', opportunity, competitors),
+    generateReport: (opportunities) => ipcRenderer.invoke('bid-opportunity:generate-report', opportunities),
+    getStatuses: () => ipcRenderer.invoke('bid-opportunity:get-statuses'),
+    getDecisionFactors: () => ipcRenderer.invoke('bid-opportunity:get-decision-factors'),
+    getTenderSources: () => ipcRenderer.invoke('bid-opportunity:get-tender-sources'),
+  },
 };
 
 contextBridge.exposeInMainWorld('yibiao', bridge);

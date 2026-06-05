@@ -1,4 +1,5 @@
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
+const { createTemplateKnowledgeService } = require('./templateKnowledgeService.cjs');
 
 function formatSuggestions(suggestions) {
   if (!suggestions?.length) return '';
@@ -145,22 +146,24 @@ JSON 格式要求：
 }`;
 }
 
-function generateOutlineMessages({ overview, requirements, suggestions, industryContext }) {
+function generateOutlineMessages({ overview, requirements, suggestions, industryContext, templateContext }) {
   return [
     { role: 'system', content: outlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
     ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
+    ...(templateContext ? [{ role: 'user', content: `模板参考：\n${templateContext}` }] : []),
     { role: 'user', content: `请生成完整的技术标目录结构，确保覆盖所有技术评分要点。${formatSuggestions(suggestions)}` },
   ];
 }
 
-function generateTopLevelOutlineMessages({ overview, requirements, suggestions, industryContext }) {
+function generateTopLevelOutlineMessages({ overview, requirements, suggestions, industryContext, templateContext }) {
   return [
     { role: 'system', content: topLevelOutlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
     ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
+    ...(templateContext ? [{ role: 'user', content: `模板参考：\n${templateContext}` }] : []),
     { role: 'user', content: `请仅生成一级目录列表，不要生成二级和三级目录。返回的 JSON 仍然使用 outline 字段，每个一级目录都必须包含 id、title、description。${formatSuggestions(suggestions)}` },
   ];
 }
@@ -1007,6 +1010,7 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
 
   // 加载行业上下文（由 bidAnalysisTask 自动检测）
   const { generateIndustryGuideMarkdown } = require('./industryKnowledgeBase.cjs');
+  const templateKnowledgeService = createTemplateKnowledgeService();
   let industryContext = '';
   if (storedPlan.industryCode) {
     try {
@@ -1015,6 +1019,18 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
     } catch (error) {
       // 行业知识加载失败不影响主流程
     }
+  }
+
+  // 加载模板知识（步骤0：templates）
+  let templateContext = '';
+  try {
+    const templateReference = templateKnowledgeService.generateTemplateReferencePrompt(storedPlan.industryCode || 'common');
+    if (templateReference) {
+      templateContext = templateReference;
+      log(`已加载 ${storedPlan.industryName || '通用'} 模板知识。`);
+    }
+  } catch (error) {
+    // 模板知识加载失败不影响主流程
   }
   if (missingRequiredBidAnalysisLabels.length) {
     throw new Error(`请先完成关键招标文件解析项：${missingRequiredBidAnalysisLabels.join('、')}`);
@@ -1030,6 +1046,7 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
     overview,
     requirements,
     industryContext,
+    templateContext,
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
   };
   let outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
