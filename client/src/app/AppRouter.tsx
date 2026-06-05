@@ -5,6 +5,7 @@ import PricingPage from '../features/pricing/pages/PricingPage';
 import DeveloperTestPage from '../features/developer/pages/DeveloperTestPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
+import PrivateKnowledgeBasePage from '../features/knowledge-base/pages/PrivateKnowledgeBasePage';
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
@@ -24,6 +25,8 @@ function AppRouter({ activeSection, onDeveloperModeChange }: AppRouterProps) {
       return <PricingPage />;
     case 'knowledge-base':
       return <KnowledgeBasePage />;
+    case 'private-knowledge-base':
+      return <PrivateKnowledgeBasePage />;
     case 'duplicate-check':
       return <DuplicateCheckPage />;
     case 'rejection-check':

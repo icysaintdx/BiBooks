@@ -7,6 +7,7 @@ const cheerio = require('cheerio');
 const { imageSize } = require('image-size');
 const { compactLogError, createDeveloperLogger, textMetrics } = require('../utils/developerLog.cjs');
 const { getGeneratedImagesDir, getImportedImagesDir } = require('../utils/paths.cjs');
+const { getDocxDefaultStyles, getPageSettings, loadCustomFonts, getFontName } = require('./fontConfig.cjs');
 const {
   AlignmentType,
   BorderStyle,
@@ -169,10 +170,11 @@ function cleanText(value) {
 }
 
 function textRun(text, options = {}) {
+  const officialStyles = getDocxDefaultStyles();
   return new TextRun({
     text: cleanText(text),
-    font: '宋体',
-    size: options.size || 24,
+    font: options.font || officialStyles.body.run.font,
+    size: options.size || officialStyles.body.run.size,
     bold: options.bold,
     italics: options.italics,
     strike: options.strike,
@@ -687,7 +689,7 @@ async function inlineRuns(nodes = [], context = {}, marks = {}) {
     } else if (node.type === 'delete') {
       runs.push(...await inlineRuns(node.children, context, { ...marks, strike: true }));
     } else if (node.type === 'inlineCode') {
-      runs.push(new TextRun({ text: cleanText(node.value), font: 'Consolas', size: 22, color: '155BD7' }));
+      runs.push(new TextRun({ text: cleanText(node.value), font: getFontName('code'), size: 22, color: '155BD7' }));
     } else if (node.type === 'break') {
       runs.push(lineBreakRun());
     } else if (node.type === 'html' && /^<br\s*\/?\s*>$/i.test(String(node.value || '').trim())) {
@@ -752,7 +754,7 @@ async function htmlInlineRuns($, nodes = [], context = {}, marks = {}) {
     } else if (tag === 'em' || tag === 'i') {
       runs.push(...await htmlInlineRuns($, $(node).contents().toArray(), context, { ...marks, italics: true }));
     } else if (tag === 'code') {
-      runs.push(new TextRun({ text: cleanText($(node).text()), font: 'Consolas', size: 22, color: '155BD7' }));
+      runs.push(new TextRun({ text: cleanText($(node).text()), font: getFontName('code'), size: 22, color: '155BD7' }));
     } else if (tag === 'a') {
       const href = $(node).attr('href') || '';
       const children = await htmlInlineRuns($, $(node).contents().toArray(), context, { ...marks, color: '2174FD', underline: true });
@@ -859,7 +861,7 @@ async function htmlNodeToDocxBlocks($, node, context, options = {}) {
     })];
   }
   if (tag === 'pre') {
-    return [paragraph([new TextRun({ text: cleanText($(node).text()), font: 'Consolas', size: 21, color: '243048' })], {
+    return [paragraph([new TextRun({ text: cleanText($(node).text()), font: getFontName('code'), size: 21, color: '243048' })], {
       shading: { type: ShadingType.CLEAR, fill: 'F6F9FF' },
       indent: { left: 260, right: 260 },
     })];
@@ -1002,7 +1004,7 @@ async function markdownNodesToDocx(nodes = [], context = {}, options = {}) {
         });
         reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 已处理。`);
       } else {
-        blocks.push(paragraph([new TextRun({ text: cleanText(node.value), font: 'Consolas', size: 21, color: '243048' })], {
+        blocks.push(paragraph([new TextRun({ text: cleanText(node.value), font: getFontName('code'), size: 21, color: '243048' })], {
           shading: { type: ShadingType.CLEAR, fill: 'F6F9FF' },
           indent: { left: 260, right: 260 },
         }));
@@ -1115,20 +1117,35 @@ async function buildDocxResult(payload, options = {}) {
   reportProgress(context, 90, '正在生成 Word 文件。');
 
   const numbering = createNumberingConfig(context);
+  const officialStyles = getDocxDefaultStyles();
+  const pageSettings = getPageSettings();
+
+  // 加载自定义字体
+  const customFonts = loadCustomFonts();
+
   const doc = new Document({
     ...(numbering ? { numbering } : {}),
     styles: {
       default: {
         document: {
-          run: { font: '宋体', size: 24 },
-          paragraph: { spacing: { line: 360, after: 160 } },
+          run: { font: officialStyles.body.run.font, size: officialStyles.body.run.size },
+          paragraph: { spacing: { line: officialStyles.body.paragraph.spacing.line, after: 160 } },
+        },
+        heading1: {
+          run: { font: officialStyles.heading1.run.font, size: officialStyles.heading1.run.size, bold: officialStyles.heading1.run.bold },
+          paragraph: { spacing: { before: officialStyles.heading1.paragraph.spacing.before, after: officialStyles.heading1.paragraph.spacing.after } },
+        },
+        heading2: {
+          run: { font: officialStyles.heading2.run.font, size: officialStyles.heading2.run.size, bold: officialStyles.heading2.run.bold },
+          paragraph: { spacing: { before: officialStyles.heading2.paragraph.spacing.before, after: officialStyles.heading2.paragraph.spacing.after } },
         },
       },
     },
     sections: [{
       properties: {
         page: {
-          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          size: pageSettings.size,
+          margin: pageSettings.margin,
         },
       },
       children,

@@ -35,6 +35,125 @@ export interface WordExportResult {
   warnings?: string[];
 }
 
+export interface CompetitiveAnalysisReport {
+  projectInfo: Record<string, unknown>;
+  analysisDate: string;
+  scoringOverview: {
+    totalScore: number;
+    itemCount: number;
+    highPriorityCount: number;
+    mediumPriorityCount: number;
+    lowPriorityCount: number;
+  };
+  weightDistribution: {
+    highPriority: Array<{ id: string; category: string; totalScore: number; percentage: number; subItemCount: number }>;
+    mediumPriority: Array<{ id: string; category: string; totalScore: number; percentage: number; subItemCount: number }>;
+    lowPriority: Array<{ id: string; category: string; totalScore: number; percentage: number; subItemCount: number }>;
+  };
+  competitiveStrategies: Array<{
+    category: string;
+    weight: number;
+    priority: 'high' | 'medium' | 'low';
+    focusAreas: string[];
+    differentiators: string[];
+    risks: string[];
+  }>;
+  industryInsights: {
+    scoringWeights: Record<string, number>;
+    keyMetrics: string[];
+    commonPitfalls: string[];
+  } | null;
+  recommendations: Array<{
+    type: 'critical' | 'strategy' | 'warning' | 'info';
+    title: string;
+    content: string;
+  }>;
+}
+
+export interface ComplianceRuleCategory {
+  id: string;
+  name: string;
+  description: string;
+  rules: Array<{
+    id: string;
+    name: string;
+    description: string;
+    check: string;
+    severity: 'critical' | 'major' | 'warning' | 'info';
+  }>;
+}
+
+export interface ComplianceCheckResult {
+  id: string;
+  name: string;
+  description: string;
+  severity: 'critical' | 'major' | 'warning' | 'info';
+  status: 'passed' | 'failed' | 'warning' | 'info';
+  message: string;
+  details: string[];
+}
+
+export interface ComplianceCheckCategory {
+  id: string;
+  name: string;
+  description: string;
+  rules: ComplianceCheckResult[];
+  passedCount: number;
+  failedCount: number;
+  warningCount: number;
+}
+
+export interface ComplianceCheckReport {
+  checkDate: string;
+  projectName: string;
+  score: number;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
+    warning: number;
+    info: number;
+  };
+  categories: ComplianceCheckCategory[];
+  recommendations: Array<{
+    type: 'critical' | 'warning' | 'info' | 'tip';
+    title: string;
+    content: string;
+    items: string[];
+  }>;
+}
+
+export interface PrivateKnowledgeCategory {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  fields: Array<{
+    id: string;
+    name: string;
+    type: string;
+    required?: boolean;
+    options?: string[];
+  }>;
+}
+
+export interface PrivateKnowledgeItem {
+  id: string;
+  category: string;
+  title: string;
+  data: Record<string, unknown>;
+  tags: string[];
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiServerStatus {
+  isRunning: boolean;
+  port: number;
+  apiKey: string;
+}
+
 export interface LatestReleaseInfo {
   version: string;
   name: string;
@@ -187,6 +306,32 @@ export interface YibiaoBridge {
     update: (payload: { id: string; name?: string; description?: string }) => Promise<boolean>;
     compare: (payload: { versionId1: string; versionId2: string }) => Promise<VersionComparison>;
     count: () => Promise<number>;
+  };
+  competitiveAnalysis: {
+    generate: (payload: { scoringAnalysis?: unknown; industryCode?: string; projectInfo?: unknown }) => Promise<{ success: boolean; report?: CompetitiveAnalysisReport; message?: string }>;
+  };
+  complianceCheck: {
+    check: (payload: { bidAnalysis?: unknown; technicalPlan?: unknown }) => Promise<{ success: boolean; report?: ComplianceCheckReport; message?: string }>;
+    getRules: () => Promise<Record<string, ComplianceRuleCategory>>;
+  };
+  privateKnowledgeBase: {
+    getCategories: () => Promise<Record<string, PrivateKnowledgeCategory>>;
+    createItem: (payload: { category: string; title: string; data: Record<string, unknown>; tags?: string[] }) => Promise<PrivateKnowledgeItem>;
+    updateItem: (payload: { id: string; updates: { title?: string; data?: Record<string, unknown>; tags?: string[] } }) => Promise<PrivateKnowledgeItem>;
+    deleteItem: (id: string) => Promise<boolean>;
+    getItem: (id: string) => Promise<PrivateKnowledgeItem | null>;
+    listItems: (payload?: { category?: string; keyword?: string }) => Promise<PrivateKnowledgeItem[]>;
+    search: (payload: { query: string; category?: string; limit?: number }) => Promise<PrivateKnowledgeItem[]>;
+    getRecommendations: (payload: { industry: string; keywords?: string[]; limit?: number }) => Promise<PrivateKnowledgeItem[]>;
+    getStatistics: () => Promise<Record<string, { count: number; total_usage: number }>>;
+    importItems: (items: Array<{ category: string; title: string; data: Record<string, unknown>; tags?: string[] }>) => Promise<{ success: number; failed: number; errors: Array<{ item: unknown; error: string }> }>;
+    exportItems: (category?: string) => Promise<PrivateKnowledgeItem[]>;
+  };
+  apiServer: {
+    start: (options?: { port?: number }) => Promise<{ success: boolean; status?: ApiServerStatus; error?: string }>;
+    stop: () => Promise<{ success: boolean; status?: ApiServerStatus; error?: string }>;
+    getStatus: () => Promise<ApiServerStatus>;
+    setApiKey: (key: string) => Promise<{ success: boolean; error?: string }>;
   };
   export: {
     exportWord: (payload: unknown) => Promise<WordExportResult>;

@@ -1833,12 +1833,14 @@ function stripMarkdownHeadingsFromLeafContent(content) {
 
 function normalizeLeafContentForSave(content, chapter) {
   const { humanize } = require('./humanizer.cjs');
+  const { formatChapter } = require('./smartFormatter.cjs');
   const normalized = stripMarkdownHeadingsFromLeafContent(
     stripRepeatedChapterTitle(normalizeGeneratedMarkdown(content), chapter),
   );
   // AI 去痕处理：去除 AI 生成痕迹，使内容更自然
   const { text } = humanize(normalized);
-  return text;
+  // 智能排版：标准化标题层级、段落间距、列表样式、表格格式
+  return formatChapter(text, chapter?.title);
 }
 
 function appendGeneratedImageMarkdown(content, imagePlan, generatedImage) {

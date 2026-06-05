@@ -15,6 +15,7 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'business-bid': BriefcaseIcon,
   'pricing': CalculatorIcon,
   'knowledge-base': ArchiveIcon,
+  'private-knowledge-base': BuildingIcon,
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,
   'bid-opportunity': RadarIcon,
@@ -162,6 +163,18 @@ function ArchiveIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M5 7.5h14v12H5z" />
       <path d="M4 4.5h16v3H4z" />
       <path d="M9 11.2h6" />
+    </svg>
+  );
+}
+
+function BuildingIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M6 20V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+      <path d="M4 20h16" />
+      <path d="M10 8h4" />
+      <path d="M10 12h4" />
+      <path d="M10 16h4" />
     </svg>
   );
 }

@@ -6,10 +6,12 @@ import OutlineEditPage from './OutlineEditPage';
 import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
 import VersionManagementPage from './VersionManagementPage';
+import CompetitiveAnalysisPage from './CompetitiveAnalysisPage';
+import ComplianceCheckPage from './ComplianceCheckPage';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
-import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, TechnicalPlanStep } from '../types';
+import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, TechnicalPlanState, TechnicalPlanStep } from '../types';
 import type { OutlineData, OutlineItem, WordExportProgressEvent } from '../../../shared/types';
 
 const steps: TechnicalPlanStep[] = [
@@ -141,6 +143,8 @@ function TechnicalPlanHome() {
   const [tenderMarkdown, setTenderMarkdown] = useState('');
   const [exportProgress, setExportProgress] = useState<ExportProgressState>(initialExportProgress);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
+  const [competitiveDialogOpen, setCompetitiveDialogOpen] = useState(false);
+  const [complianceDialogOpen, setComplianceDialogOpen] = useState(false);
   const activeIndex = steps.indexOf(state.step);
   const bidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
@@ -528,6 +532,20 @@ function TechnicalPlanHome() {
           tooltip: '版本管理：保存、查看、恢复历史版本',
           onClick: () => setVersionDialogOpen(true),
         },
+        {
+          id: 'competitive',
+          label: '竞品',
+          variant: 'secondary' as const,
+          tooltip: '竞品分析：基于评分要求分析竞争策略',
+          onClick: () => setCompetitiveDialogOpen(true),
+        },
+        {
+          id: 'compliance',
+          label: '合规',
+          variant: 'secondary' as const,
+          tooltip: '合规检查：检查投标文件是否符合法规要求',
+          onClick: () => setComplianceDialogOpen(true),
+        },
       ],
     },
     {
@@ -692,6 +710,47 @@ function TechnicalPlanHome() {
               保存当前工作进度，查看历史版本，支持版本对比和恢复。
             </Dialog.Description>
             <VersionManagementPage onRestore={() => setVersionDialogOpen(false)} />
+            <Dialog.Close asChild>
+              <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* 竞品分析对话框 */}
+      <Dialog.Root open={competitiveDialogOpen} onOpenChange={setCompetitiveDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content competitive-analysis-dialog">
+            <Dialog.Title className="dialog-title">竞品分析</Dialog.Title>
+            <Dialog.Description className="dialog-description">
+              基于评分要求和行业知识，分析竞争策略和关键得分领域。
+            </Dialog.Description>
+            <CompetitiveAnalysisPage
+              scoringAnalysis={state.scoringAnalysis}
+              industryCode={state.industryCode}
+              projectInfo={state.bidAnalysisTasks?.projectInfo?.content ? JSON.parse(state.bidAnalysisTasks.projectInfo.content) : undefined}
+            />
+            <Dialog.Close asChild>
+              <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* 合规检查对话框 */}
+      <Dialog.Root open={complianceDialogOpen} onOpenChange={setComplianceDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content compliance-check-dialog">
+            <Dialog.Title className="dialog-title">合规性检查</Dialog.Title>
+            <Dialog.Description className="dialog-description">
+              检查投标文件是否符合招投标法规要求，包括格式合规、资质要求、时间节点、保证金等检查项。
+            </Dialog.Description>
+            <ComplianceCheckPage
+              bidAnalysis={state.bidAnalysisTasks}
+              technicalPlan={state as Partial<TechnicalPlanState>}
+            />
             <Dialog.Close asChild>
               <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
             </Dialog.Close>

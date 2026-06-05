@@ -3,7 +3,25 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { getConfigFilePath } = require('../utils/paths.cjs');
 
-const textModelProviders = ['jinlong', 'volcengine', 'xiaomi', 'deepseek', 'longcat', 'custom'];
+// 内置在线提供商
+const BUILTIN_ONLINE_PROVIDERS = [
+  { id: 'jinlong', name: '金龙 (GPT代理)', type: 'online' },
+  { id: 'volcengine', name: '火山引擎', type: 'online' },
+  { id: 'xiaomi', name: '小米 MiMo', type: 'online' },
+  { id: 'deepseek', name: 'DeepSeek', type: 'online' },
+  { id: 'longcat', name: 'LongCat', type: 'online' },
+];
+
+// 内置离线提供商（本地模型）
+const BUILTIN_OFFLINE_PROVIDERS = [
+  { id: 'ollama', name: 'Ollama', type: 'offline', defaultPort: 11434 },
+  { id: 'lmstudio', name: 'LM Studio', type: 'offline', defaultPort: 1234 },
+  { id: 'llamacpp', name: 'llama.cpp', type: 'offline', defaultPort: 8080 },
+  { id: 'vllm', name: 'vLLM', type: 'offline', defaultPort: 8000 },
+];
+
+// 所有内置提供商
+const textModelProviders = [...BUILTIN_ONLINE_PROVIDERS.map((p) => p.id), ...BUILTIN_OFFLINE_PROVIDERS.map((p) => p.id), 'custom'];
 const imageModelProviders = ['jinlong', 'volcengine', 'google-ai-studio', 'custom'];
 const oldXiaomiBaseUrl = 'https://api.xiaomimimo.com/v1';
 
@@ -13,6 +31,10 @@ const textProviderBaseUrls = {
   xiaomi: 'https://token-plan-cn.xiaomimimo.com/v1',
   deepseek: 'https://api.deepseek.com',
   longcat: 'https://api.longcat.chat/openai/v1',
+  ollama: 'http://localhost:11434/v1',
+  lmstudio: 'http://localhost:1234/v1',
+  llamacpp: 'http://localhost:8080/v1',
+  vllm: 'http://localhost:8000/v1',
   custom: '',
 };
 
@@ -21,31 +43,61 @@ const defaultTextModelProfiles = {
     api_key: '',
     base_url: textProviderBaseUrls.jinlong,
     model_name: 'gpt-3.5-turbo',
+    provider_type: 'online',
   },
   volcengine: {
     api_key: '',
     base_url: textProviderBaseUrls.volcengine,
     model_name: '',
+    provider_type: 'online',
   },
   xiaomi: {
     api_key: '',
     base_url: textProviderBaseUrls.xiaomi,
     model_name: '',
+    provider_type: 'online',
   },
   deepseek: {
     api_key: '',
     base_url: textProviderBaseUrls.deepseek,
     model_name: '',
+    provider_type: 'online',
   },
   longcat: {
     api_key: '',
     base_url: textProviderBaseUrls.longcat,
     model_name: '',
+    provider_type: 'online',
+  },
+  ollama: {
+    api_key: '',
+    base_url: textProviderBaseUrls.ollama,
+    model_name: 'llama3',
+    provider_type: 'offline',
+  },
+  lmstudio: {
+    api_key: '',
+    base_url: textProviderBaseUrls.lmstudio,
+    model_name: '',
+    provider_type: 'offline',
+  },
+  llamacpp: {
+    api_key: '',
+    base_url: textProviderBaseUrls.llamacpp,
+    model_name: '',
+    provider_type: 'offline',
+  },
+  vllm: {
+    api_key: '',
+    base_url: textProviderBaseUrls.vllm,
+    model_name: '',
+    provider_type: 'offline',
   },
   custom: {
     api_key: '',
     base_url: '',
     model_name: '',
+    provider_type: 'online',
   },
 };
 
@@ -295,6 +347,36 @@ function createConfigStore(app) {
   };
 }
 
+/**
+ * 获取提供商信息（包括类型：online/offline）
+ */
+function getProviderInfo(providerId) {
+  const online = BUILTIN_ONLINE_PROVIDERS.find((p) => p.id === providerId);
+  if (online) return { ...online, type: 'online' };
+
+  const offline = BUILTIN_OFFLINE_PROVIDERS.find((p) => p.id === providerId);
+  if (offline) return { ...offline, type: 'offline' };
+
+  if (providerId === 'custom') return { id: 'custom', name: '自定义', type: 'online' };
+
+  return null;
+}
+
+/**
+ * 获取所有提供商列表（按类型分组）
+ */
+function getProvidersByType() {
+  return {
+    online: BUILTIN_ONLINE_PROVIDERS.map((p) => ({ ...p })),
+    offline: BUILTIN_OFFLINE_PROVIDERS.map((p) => ({ ...p })),
+    custom: [{ id: 'custom', name: '自定义提供商', type: 'online' }],
+  };
+}
+
 module.exports = {
   createConfigStore,
+  getProviderInfo,
+  getProvidersByType,
+  BUILTIN_ONLINE_PROVIDERS,
+  BUILTIN_OFFLINE_PROVIDERS,
 };

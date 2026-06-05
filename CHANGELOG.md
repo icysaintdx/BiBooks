@@ -1,5 +1,124 @@
 # 更新日志
 
+## [v0.11.0] - 2026-06-06 04:30
+**版本代号**: API服务化版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### API 服务化模块 ⭐
+- **功能**: 提供 REST API 接口，支持外部系统集成调用
+- **后端**: `client/electron/services/apiServer.cjs`
+- **IPC**: `client/electron/ipc/apiServerIpc.cjs`
+- **前端**: 设置页面新增"API 服务"标签页
+- **特性**: 
+  - HTTP REST API 服务器，支持启动/停止控制
+  - API 密钥认证（可选）
+  - 完整的招标分析、技术方案、知识库、AI 对话等 API 端点
+  - CORS 跨域支持
+  - 实时状态监控
+
+### 📚 文档更新
+- [API接口说明](docs/api/API接口说明.md) ⭐
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
+## [v0.10.0] - 2026-06-06 04:00
+**版本代号**: 私有知识库版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 私有知识库模块 ⭐
+- **功能**: 企业专属标书知识库，支持存储企业简介、团队信息、案例库、中标方案、方案模板、可复用内容
+- **后端**: `client/electron/services/privateKnowledgeBase.cjs`
+- **前端**: `client/src/features/knowledge-base/pages/PrivateKnowledgeBasePage.tsx`
+- **集成**: 导航菜单新增"企业知识库"入口
+- **特性**: 6大知识分类、CRUD管理、搜索检索、行业推荐、批量导入导出
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
+## [v0.9.0] - 2026-06-06 03:30
+**版本代号**: 合规检查版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 合规性检查模块 ⭐
+- **功能**: 检查投标文件是否符合招投标法规要求，包括格式合规、资质要求、时间节点、保证金等检查项
+- **后端**: `client/electron/services/complianceCheck.cjs`
+- **前端**: `client/src/features/technical-plan/pages/ComplianceCheckPage.tsx`
+- **集成**: 技术方案工具栏新增"合规"按钮，弹窗式合规检查界面
+- **特性**: 合规分数评估、分类检查、合规建议、详细检查报告
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
+## [v0.8.0] - 2026-06-06 03:00
+**版本代号**: 字体与LLM增强版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 公文字体配置 ⭐
+- **功能**: 公文格式字体管理，支持方正小标宋/仿宋/楷体/黑体等标准字体
+- **后端**: `client/electron/services/fontConfig.cjs`
+- **集成**: `client/electron/services/exportService.cjs` Word导出使用标准公文字体
+- **特性**: GB/T 9704-2012 公文格式参数、页面设置、字体回退机制
+
+#### LLM 提供商增强 ⭐
+- **功能**: 支持离线/在线提供商区分，新增 Ollama/LM Studio/llama.cpp/vLLM 本地模型支持
+- **后端**: `client/electron/services/configStore.cjs` 提供商类型分组
+- **前端**: `client/src/features/settings/pages/SettingsPage.tsx` 提供商分组选择
+- **特性**: 在线/离线分组显示、本地模型默认配置、provider_type 字段
+
+### 🔧 集成优化
+- **字体集成**: exportService.cjs 导出 Word 时使用公文标准字体和页面设置
+- **提供商分组**: 设置页面提供商下拉框按在线/离线分组显示
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
+## [v0.7.0] - 2026-06-06 02:30
+**版本代号**: 竞品分析版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 竞品分析模块 ⭐
+- **功能**: 基于招标评分要求和行业知识，分析竞争策略、关键得分领域、差异化建议
+- **后端**: `client/electron/services/competitiveAnalysis.cjs`
+- **前端**: `client/src/features/technical-plan/pages/CompetitiveAnalysisPage.tsx`
+- **集成**: 技术方案工具栏新增"竞品"按钮，弹窗式竞品分析界面
+- **特性**: 评分权重分析、竞争策略生成、行业洞察、风险提醒
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
+## [v0.6.0] - 2026-06-06 02:00
+**版本代号**: 智能排版版
+**文档总数**: 3
+
+### 🆕 新增功能
+#### 智能排版模块 ⭐
+- **功能**: 自动格式化技术方案内容，统一标题层级、段落间距、列表样式、表格格式、代码块标识
+- **后端**: `client/electron/services/smartFormatter.cjs`
+- **集成**: `client/electron/services/contentGenerationTask.cjs` 内容生成后自动排版
+- **处理**: 标题层级标准化、段落间距规范化、列表标记统一、表格对齐、代码块语言标识补充
+
+### 🔧 集成优化
+- **智能排版集成**: contentGenerationTask.cjs 内容生成后自动执行排版（在 AI 去痕之后）
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
 ## [v0.5.0] - 2026-06-06 01:30
 **版本代号**: 版本管理版
 **文档总数**: 3

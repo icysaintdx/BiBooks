@@ -203,4 +203,7 @@ export interface TechnicalPlanState {
   outlineData: OutlineData | null;
   scoringAnalysis?: ScoringAnalysisResult;
   scoringAnalysisTask?: BackgroundTaskState;
+  industryCode?: string;
+  industryName?: string;
+  industryConfidence?: number;
 }

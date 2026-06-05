@@ -3,6 +3,7 @@ export type SectionId =
   | 'business-bid'
   | 'pricing'
   | 'knowledge-base'
+  | 'private-knowledge-base'
   | 'duplicate-check'
   | 'rejection-check'
   | 'bid-opportunity'

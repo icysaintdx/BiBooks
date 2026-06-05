@@ -1,6 +1,6 @@
 const { ipcMain } = require('electron');
 
-function registerTaskIpc({ taskService }) {
+function registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService }) {
   ipcMain.handle('tasks:start-bid-analysis', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startBidAnalysis(payload);
@@ -44,6 +44,23 @@ function registerTaskIpc({ taskService }) {
   ipcMain.on('tasks:subscribe', (event) => {
     taskService.subscribe(event.sender);
   });
+
+  // 竞品分析（同步调用，基于已有数据生成报告）
+  if (competitiveAnalysisService) {
+    ipcMain.handle('competitive-analysis:generate', (event, payload) => {
+      return competitiveAnalysisService.generateReport(payload);
+    });
+  }
+
+  // 合规性检查（同步调用，基于已有数据生成报告）
+  if (complianceCheckService) {
+    ipcMain.handle('compliance-check:check', (event, payload) => {
+      return complianceCheckService.check(payload);
+    });
+    ipcMain.handle('compliance-check:get-rules', () => {
+      return complianceCheckService.getRules();
+    });
+  }
 }
 
 module.exports = { registerTaskIpc };

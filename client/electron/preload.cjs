@@ -113,6 +113,32 @@ const bridge = {
     compare: (payload) => ipcRenderer.invoke('versions:compare', payload),
     count: () => ipcRenderer.invoke('versions:count'),
   },
+  competitiveAnalysis: {
+    generate: (payload) => ipcRenderer.invoke('competitive-analysis:generate', payload),
+  },
+  complianceCheck: {
+    check: (payload) => ipcRenderer.invoke('compliance-check:check', payload),
+    getRules: () => ipcRenderer.invoke('compliance-check:get-rules'),
+  },
+  privateKnowledgeBase: {
+    getCategories: () => ipcRenderer.invoke('private-kb:get-categories'),
+    createItem: (payload) => ipcRenderer.invoke('private-kb:create-item', payload),
+    updateItem: (payload) => ipcRenderer.invoke('private-kb:update-item', payload),
+    deleteItem: (id) => ipcRenderer.invoke('private-kb:delete-item', id),
+    getItem: (id) => ipcRenderer.invoke('private-kb:get-item', id),
+    listItems: (payload) => ipcRenderer.invoke('private-kb:list-items', payload),
+    search: (payload) => ipcRenderer.invoke('private-kb:search', payload),
+    getRecommendations: (payload) => ipcRenderer.invoke('private-kb:get-recommendations', payload),
+    getStatistics: () => ipcRenderer.invoke('private-kb:get-statistics'),
+    importItems: (items) => ipcRenderer.invoke('private-kb:import', items),
+    exportItems: (category) => ipcRenderer.invoke('private-kb:export', category),
+  },
+  apiServer: {
+    start: (options) => ipcRenderer.invoke('api-server:start', options),
+    stop: () => ipcRenderer.invoke('api-server:stop'),
+    getStatus: () => ipcRenderer.invoke('api-server:get-status'),
+    setApiKey: (key) => ipcRenderer.invoke('api-server:set-api-key', key),
+  },
   export: {
     exportWord: (payload) => ipcRenderer.invoke('export:word', payload),
     onWordExportProgress: (callback) => {

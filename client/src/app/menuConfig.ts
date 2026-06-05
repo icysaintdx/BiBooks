@@ -22,6 +22,11 @@ export const appMenuItems: AppMenuItem[] = [
     description: '素材、模板和案例资产',
   },
   {
+    id: 'private-knowledge-base',
+    label: '企业知识库',
+    description: '企业专属标书知识管理',
+  },
+  {
     id: 'duplicate-check',
     label: '标书查重',
     description: '相似度与重复表达检测',

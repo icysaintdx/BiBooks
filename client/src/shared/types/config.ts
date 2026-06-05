@@ -1,9 +1,18 @@
-export type TextModelProvider = 'jinlong' | 'volcengine' | 'xiaomi' | 'deepseek' | 'longcat' | 'custom';
+// 在线提供商
+export type OnlineTextModelProvider = 'jinlong' | 'volcengine' | 'xiaomi' | 'deepseek' | 'longcat';
+// 离线提供商（本地模型）
+export type OfflineTextModelProvider = 'ollama' | 'lmstudio' | 'llamacpp' | 'vllm';
+// 所有文本模型提供商
+export type TextModelProvider = OnlineTextModelProvider | OfflineTextModelProvider | 'custom';
+
+// 提供商类型
+export type ProviderType = 'online' | 'offline';
 
 export interface TextModelConfig {
   api_key: string;
   base_url: string;
   model_name: string;
+  provider_type?: ProviderType;
 }
 
 export type TextModelProfiles = Record<TextModelProvider, TextModelConfig>;

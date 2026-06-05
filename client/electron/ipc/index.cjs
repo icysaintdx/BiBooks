@@ -10,6 +10,8 @@ const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
 const { registerVersionManagementIpc } = require('./versionManagementIpc.cjs');
+const { registerPrivateKnowledgeBaseIpc } = require('./privateKnowledgeBaseIpc.cjs');
+const { registerApiServerIpc } = require('./apiServerIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createConfigStore } = require('../services/configStore.cjs');
 const { createDuplicateCheckService } = require('../services/duplicateCheckService.cjs');
@@ -23,6 +25,10 @@ const { createSqliteDatabase } = require('../services/sqliteDatabase.cjs');
 const { createTaskService } = require('../services/taskService.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
 const { createVersionManagementStore } = require('../services/versionManagement.cjs');
+const { createCompetitiveAnalysisService } = require('../services/competitiveAnalysis.cjs');
+const { createComplianceCheckService } = require('../services/complianceCheck.cjs');
+const { createPrivateKnowledgeBaseService } = require('../services/privateKnowledgeBase.cjs');
+const { createApiServer } = require('../services/apiServer.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -113,12 +119,25 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
     const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService });
     const versionManagementStore = createVersionManagementStore({ db: sqliteDatabase.db });
+    const competitiveAnalysisService = createCompetitiveAnalysisService();
+    const complianceCheckService = createComplianceCheckService();
+    const privateKnowledgeBaseService = createPrivateKnowledgeBaseService({ db: sqliteDatabase.db });
+    const apiServer = createApiServer({
+      configStore,
+      technicalPlanStore,
+      knowledgeBaseService,
+      privateKnowledgeBaseService,
+      taskService,
+      aiService,
+    });
     registerKnowledgeBaseIpc({ knowledgeBaseService });
     registerTechnicalPlanIpc({ technicalPlanStore });
     registerVersionManagementIpc({ versionManagementStore, technicalPlanStore });
     registerDuplicateCheckIpc({ duplicateCheckStore });
     registerRejectionCheckIpc({ rejectionCheckStore });
-    registerTaskIpc({ taskService });
+    registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService });
+    registerPrivateKnowledgeBaseIpc({ privateKnowledgeBaseService });
+    registerApiServerIpc({ apiServer });
   } catch (error) {
     registerUnavailableTechnicalPlanIpc(error);
   }

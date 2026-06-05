@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
-import type { ClientConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider } from '../../../shared/types';
+import type { ApiServerStatus, ClientConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 
-type SettingsTab = 'general' | 'text-model' | 'image-model' | 'file-parser' | 'about';
+type SettingsTab = 'general' | 'text-model' | 'image-model' | 'file-parser' | 'api-server' | 'about';
 type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error' | 'disabled';
 
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
@@ -12,27 +12,39 @@ const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'text-model', label: '文本模型' },
   { id: 'image-model', label: '生图模型' },
   { id: 'file-parser', label: '文件解析' },
+  { id: 'api-server', label: 'API 服务' },
   { id: 'about', label: '关于' },
 ];
 
-const textModelProviders: Array<{ value: TextModelProvider; label: string }> = [
-  { value: 'jinlong', label: '金龙中转站【推荐】' },
-  { value: 'volcengine', label: '火山方舟' },
-  { value: 'xiaomi', label: '小米 token plan' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'longcat', label: '龙猫' },
-  { value: 'custom', label: '自定义' },
+const textModelProviders: Array<{ value: TextModelProvider; label: string; type: 'online' | 'offline' }> = [
+  // 在线提供商
+  { value: 'jinlong', label: '金龙中转站【推荐】', type: 'online' },
+  { value: 'volcengine', label: '火山方舟', type: 'online' },
+  { value: 'xiaomi', label: '小米 token plan', type: 'online' },
+  { value: 'deepseek', label: 'DeepSeek', type: 'online' },
+  { value: 'longcat', label: '龙猫', type: 'online' },
+  // 离线提供商（本地模型）
+  { value: 'ollama', label: 'Ollama（本地）', type: 'offline' },
+  { value: 'lmstudio', label: 'LM Studio（本地）', type: 'offline' },
+  { value: 'llamacpp', label: 'llama.cpp（本地）', type: 'offline' },
+  { value: 'vllm', label: 'vLLM（本地）', type: 'offline' },
+  // 自定义
+  { value: 'custom', label: '自定义', type: 'online' },
 ];
 
 const oldXiaomiBaseUrl = 'https://api.xiaomimimo.com/v1';
 
 const textProviderDefaults: TextModelProfiles = {
-  jinlong: { api_key: '', base_url: 'https://jlaudeapi.com/v1', model_name: 'gpt-3.5-turbo' },
-  volcengine: { api_key: '', base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_name: '' },
-  xiaomi: { api_key: '', base_url: 'https://token-plan-cn.xiaomimimo.com/v1', model_name: '' },
-  deepseek: { api_key: '', base_url: 'https://api.deepseek.com', model_name: '' },
-  longcat: { api_key: '', base_url: 'https://api.longcat.chat/openai/v1', model_name: '' },
-  custom: { api_key: '', base_url: '', model_name: '' },
+  jinlong: { api_key: '', base_url: 'https://jlaudeapi.com/v1', model_name: 'gpt-3.5-turbo', provider_type: 'online' },
+  volcengine: { api_key: '', base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_name: '', provider_type: 'online' },
+  xiaomi: { api_key: '', base_url: 'https://token-plan-cn.xiaomimimo.com/v1', model_name: '', provider_type: 'online' },
+  deepseek: { api_key: '', base_url: 'https://api.deepseek.com', model_name: '', provider_type: 'online' },
+  longcat: { api_key: '', base_url: 'https://api.longcat.chat/openai/v1', model_name: '', provider_type: 'online' },
+  ollama: { api_key: '', base_url: 'http://localhost:11434/v1', model_name: 'llama3', provider_type: 'offline' },
+  lmstudio: { api_key: '', base_url: 'http://localhost:1234/v1', model_name: '', provider_type: 'offline' },
+  llamacpp: { api_key: '', base_url: 'http://localhost:8080/v1', model_name: '', provider_type: 'offline' },
+  vllm: { api_key: '', base_url: 'http://localhost:8000/v1', model_name: '', provider_type: 'offline' },
+  custom: { api_key: '', base_url: '', model_name: '', provider_type: 'online' },
 };
 
 const textProviderApiKeyUrls: Partial<Record<TextModelProvider, string>> = {
@@ -57,6 +69,7 @@ function normalizeTextModelProfile(provider: TextModelProvider, profile?: Partia
     api_key: profile?.api_key ?? defaults.api_key,
     base_url: provider === 'xiaomi' && baseUrl === oldXiaomiBaseUrl ? defaults.base_url : baseUrl,
     model_name: profile?.model_name ?? defaults.model_name,
+    provider_type: defaults.provider_type,
   };
 }
 
@@ -72,6 +85,7 @@ function textProfileFromState(textModel: SettingsPageState['textModel']): TextMo
     api_key: textModel.api_key,
     base_url: textModel.provider === 'custom' ? textModel.base_url : textProviderDefaults[textModel.provider].base_url,
     model_name: textModel.model_name,
+    provider_type: textProviderDefaults[textModel.provider].provider_type,
   };
 }
 
@@ -328,10 +342,15 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateVersion, setUpdateVersion] = useState('');
   const [updateError, setUpdateError] = useState('');
+  const [apiServerStatus, setApiServerStatus] = useState<ApiServerStatus | null>(null);
+  const [apiServerPort, setApiServerPort] = useState('9800');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiServerLoading, setApiServerLoading] = useState(false);
   const { showToast } = useToast();
 
   useEffect(() => {
     void loadTextConfig();
+    void loadApiServerStatus();
     void window.yibiao?.getVersion().then(setAppVersion);
 
     const unsubs: Array<() => void> = [];
@@ -718,6 +737,66 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     }
   };
 
+  const loadApiServerStatus = async () => {
+    try {
+      const status = await window.yibiao?.apiServer.getStatus();
+      if (status) {
+        setApiServerStatus(status);
+        setApiServerPort(String(status.port));
+      }
+    } catch (error) {
+      console.error('加载 API 服务器状态失败:', error);
+    }
+  };
+
+  const handleStartApiServer = async () => {
+    setApiServerLoading(true);
+    try {
+      const result = await window.yibiao?.apiServer.start({ port: parseInt(apiServerPort) || 9800 });
+      if (result?.success) {
+        setApiServerStatus(result.status || null);
+        showToast('API 服务器已启动', 'success');
+      } else {
+        showToast(result?.error || '启动失败', 'error');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '启动 API 服务器失败', 'error');
+    } finally {
+      setApiServerLoading(false);
+    }
+  };
+
+  const handleStopApiServer = async () => {
+    setApiServerLoading(true);
+    try {
+      const result = await window.yibiao?.apiServer.stop();
+      if (result?.success) {
+        setApiServerStatus(result.status || null);
+        showToast('API 服务器已停止', 'success');
+      } else {
+        showToast(result?.error || '停止失败', 'error');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '停止 API 服务器失败', 'error');
+    } finally {
+      setApiServerLoading(false);
+    }
+  };
+
+  const handleSetApiKey = async () => {
+    try {
+      const result = await window.yibiao?.apiServer.setApiKey(apiKeyInput);
+      if (result?.success) {
+        showToast('API 密钥已更新', 'success');
+        await loadApiServerStatus();
+      } else {
+        showToast(result?.error || '设置失败', 'error');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '设置 API 密钥失败', 'error');
+    }
+  };
+
   const fetchTextModels = async () => {
     try {
       setLoadingModels('text');
@@ -1040,9 +1119,16 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 value={state.textModel.provider}
                 onChange={(event) => updateTextModelProvider(event.target.value as TextModelProvider)}
               >
-                {textModelProviders.map((provider) => (
-                  <option value={provider.value} key={provider.value}>{provider.label}</option>
-                ))}
+                <optgroup label="在线提供商">
+                  {textModelProviders.filter((p) => p.type === 'online').map((provider) => (
+                    <option value={provider.value} key={provider.value}>{provider.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="离线提供商（本地模型）">
+                  {textModelProviders.filter((p) => p.type === 'offline').map((provider) => (
+                    <option value={provider.value} key={provider.value}>{provider.label}</option>
+                  ))}
+                </optgroup>
               </select>
             </label>
             <label className="settings-row">
@@ -1291,6 +1377,154 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           <div className="parser-note">
             招标文件大多数是 Word 或 Word 导出的带文字层 PDF，本地解析可以适应 95% 以上的情况；如果解析失败，再尝试 MinerU 精准解析 API。
           </div>
+        </section>
+      )}
+
+      {activeTab === 'api-server' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>API 服务器</strong>
+          </div>
+          <div className="settings-list">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>服务器状态</strong>
+                <span>REST API 服务器，支持外部系统集成调用</span>
+              </div>
+              <div className="api-server-status">
+                <span className={`status-indicator ${apiServerStatus?.isRunning ? 'is-running' : 'is-stopped'}`}>
+                  {apiServerStatus?.isRunning ? '运行中' : '已停止'}
+                </span>
+                {apiServerStatus?.isRunning && (
+                  <span className="status-port">端口: {apiServerStatus.port}</span>
+                )}
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>端口号</strong>
+                <span>API 服务器监听端口，默认 9800</span>
+              </div>
+              <input
+                type="text"
+                value={apiServerPort}
+                onChange={(e) => setApiServerPort(e.target.value)}
+                placeholder="9800"
+                disabled={apiServerStatus?.isRunning}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>API 密钥</strong>
+                <span>设置后所有 API 请求需携带此密钥（留空则不验证）</span>
+              </div>
+              <div className="settings-control-with-action">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="留空则不验证密钥"
+                />
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={handleSetApiKey}
+                >
+                  设置
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>控制</strong>
+                <span>启动或停止 API 服务器</span>
+              </div>
+              <div className="api-server-controls">
+                {apiServerStatus?.isRunning ? (
+                  <button
+                    type="button"
+                    className="inline-action danger"
+                    onClick={handleStopApiServer}
+                    disabled={apiServerLoading}
+                  >
+                    {apiServerLoading ? '停止中...' : '停止服务器'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="inline-action primary"
+                    onClick={handleStartApiServer}
+                    disabled={apiServerLoading}
+                  >
+                    {apiServerLoading ? '启动中...' : '启动服务器'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={loadApiServerStatus}
+                >
+                  刷新状态
+                </button>
+              </div>
+            </div>
+          </div>
+          {apiServerStatus?.isRunning && (
+            <div className="api-server-info">
+              <div className="api-info-header">
+                <strong>API 端点</strong>
+              </div>
+              <div className="api-endpoints">
+                <div className="api-endpoint">
+                  <span className="method get">GET</span>
+                  <code>/api/v1/health</code>
+                  <span className="desc">健康检查</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method get">GET</span>
+                  <code>/api/v1/status</code>
+                  <span className="desc">服务器状态</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method post">POST</span>
+                  <code>/api/v1/analysis/bid</code>
+                  <span className="desc">启动招标分析</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method post">POST</span>
+                  <code>/api/v1/technical-plan/outline</code>
+                  <span className="desc">生成目录大纲</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method post">POST</span>
+                  <code>/api/v1/technical-plan/content</code>
+                  <span className="desc">生成内容</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method get">GET</span>
+                  <code>/api/v1/knowledge-base/list</code>
+                  <span className="desc">知识库列表</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method get">GET</span>
+                  <code>/api/v1/private-kb/items</code>
+                  <span className="desc">私有知识库</span>
+                </div>
+                <div className="api-endpoint">
+                  <span className="method post">POST</span>
+                  <code>/api/v1/ai/chat</code>
+                  <span className="desc">AI 对话</span>
+                </div>
+              </div>
+              <div className="api-usage-tip">
+                <strong>使用提示：</strong>
+                <p>1. 外部系统可通过 HTTP 请求调用上述 API 端点</p>
+                <p>2. 如设置了 API 密钥，请求头需包含 <code>X-API-Key: your-key</code> 或 <code>Authorization: Bearer your-key</code></p>
+                <p>3. 所有请求和响应均为 JSON 格式</p>
+              </div>
+            </div>
+          )}
         </section>
       )}
 
