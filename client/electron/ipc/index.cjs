@@ -41,6 +41,7 @@ const { createTaskRetryService } = require('../services/taskRetryService.cjs');
 const { createDocxTemplateService } = require('../services/docxTemplateService.cjs');
 const { createCommercialBidService } = require('../services/commercialBidService.cjs');
 const { createBidOpportunityService } = require('../services/bidOpportunityService.cjs');
+const { createBidOpportunityService } = require('../services/bidOpportunityService.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
