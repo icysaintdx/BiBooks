@@ -139,6 +139,18 @@ const bridge = {
     getStatus: () => ipcRenderer.invoke('api-server:get-status'),
     setApiKey: (key) => ipcRenderer.invoke('api-server:set-api-key', key),
   },
+  collaboration: {
+    createSession: (payload) => ipcRenderer.invoke('collaboration:createSession', payload),
+    getSession: (payload) => ipcRenderer.invoke('collaboration:getSession', payload),
+    getActiveSession: (payload) => ipcRenderer.invoke('collaboration:getActiveSession', payload),
+    closeSession: (payload) => ipcRenderer.invoke('collaboration:closeSession', payload),
+    recordOperation: (payload) => ipcRenderer.invoke('collaboration:recordOperation', payload),
+    getOperations: (payload) => ipcRenderer.invoke('collaboration:getOperations', payload),
+    updateCursor: (payload) => ipcRenderer.invoke('collaboration:updateCursor', payload),
+    getCursors: (payload) => ipcRenderer.invoke('collaboration:getCursors', payload),
+    getSessionStats: (payload) => ipcRenderer.invoke('collaboration:getSessionStats', payload),
+    getWsStatus: () => ipcRenderer.invoke('collaboration:getWsStatus'),
+  },
   export: {
     exportWord: (payload) => ipcRenderer.invoke('export:word', payload),
     onWordExportProgress: (callback) => {

@@ -8,6 +8,7 @@ import ContentEditPage from './ContentEditPage';
 import VersionManagementPage from './VersionManagementPage';
 import CompetitiveAnalysisPage from './CompetitiveAnalysisPage';
 import ComplianceCheckPage from './ComplianceCheckPage';
+import CollaborationPage from './CollaborationPage';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
@@ -145,6 +146,7 @@ function TechnicalPlanHome() {
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [competitiveDialogOpen, setCompetitiveDialogOpen] = useState(false);
   const [complianceDialogOpen, setComplianceDialogOpen] = useState(false);
+  const [collaborationDialogOpen, setCollaborationDialogOpen] = useState(false);
   const activeIndex = steps.indexOf(state.step);
   const bidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
@@ -546,6 +548,13 @@ function TechnicalPlanHome() {
           tooltip: '合规检查：检查投标文件是否符合法规要求',
           onClick: () => setComplianceDialogOpen(true),
         },
+        {
+          id: 'collaboration',
+          label: '协同',
+          variant: 'secondary' as const,
+          tooltip: '协同编辑：多人实时协同编辑技术方案',
+          onClick: () => setCollaborationDialogOpen(true),
+        },
       ],
     },
     {
@@ -750,6 +759,28 @@ function TechnicalPlanHome() {
             <ComplianceCheckPage
               bidAnalysis={state.bidAnalysisTasks}
               technicalPlan={state as Partial<TechnicalPlanState>}
+            />
+            <Dialog.Close asChild>
+              <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* 协同编辑对话框 */}
+      <Dialog.Root open={collaborationDialogOpen} onOpenChange={setCollaborationDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog-content collaboration-dialog">
+            <Dialog.Title className="dialog-title">协同编辑</Dialog.Title>
+            <Dialog.Description className="dialog-description">
+              多人实时协同编辑技术方案，支持多人同时编辑、实时同步、光标显示。
+            </Dialog.Description>
+            <CollaborationPage
+              technicalPlan={state as Partial<TechnicalPlanState>}
+              onSessionCreated={(session) => {
+                showToast(`协同会话已创建: ${session.id.slice(0, 8)}...`, 'success');
+              }}
             />
             <Dialog.Close asChild>
               <button type="button" className="dialog-close-button" aria-label="关闭">✕</button>

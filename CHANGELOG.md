@@ -1,5 +1,29 @@
 # 更新日志
 
+## [v0.12.0] - 2026-06-06 15:30
+**版本代号**: 协同编辑版
+**文档总数**: 5
+
+### 🆕 新增功能
+#### 协同编辑模块 ⭐
+- **功能**: 多人实时协同编辑技术方案，支持多人同时编辑、实时同步、光标显示
+- **后端**: `client/electron/services/collaborationService.cjs`
+- **后端**: `client/electron/services/websocketService.cjs`
+- **IPC**: `client/electron/ipc/collaborationIpc.cjs`
+- **前端**: `client/src/features/technical-plan/pages/CollaborationPage.tsx`
+- **集成**: 技术方案工具栏新增"协同"按钮，弹窗式协同编辑界面
+- **特性**: 
+  - WebSocket 实时双向通信
+  - 操作转换（OT）冲突解决
+  - 用户光标位置同步
+  - 会话管理和统计
+  - 操作历史记录
+
+### 📚 文档更新
+- [项目进度总览](docs/summary/项目进度总览.md) ⭐
+
+---
+
 ## [v0.11.0] - 2026-06-06 04:30
 **版本代号**: API服务化版
 **文档总数**: 3

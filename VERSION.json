@@ -1,9 +1,9 @@
 {
-  "version": "v0.11.0",
-  "codename": "API服务化版",
-  "releaseDate": "2026-06-06T04:30:00",
+  "version": "v0.12.0",
+  "codename": "协同编辑版",
+  "releaseDate": "2026-06-06T15:30:00",
   "docs": {
-    "total": 4,
+    "total": 5,
     "feature": 1,
     "bugfix": 0,
     "version": 0,

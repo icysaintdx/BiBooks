@@ -12,6 +12,7 @@ const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
 const { registerVersionManagementIpc } = require('./versionManagementIpc.cjs');
 const { registerPrivateKnowledgeBaseIpc } = require('./privateKnowledgeBaseIpc.cjs');
 const { registerApiServerIpc } = require('./apiServerIpc.cjs');
+const { registerCollaborationIpc } = require('./collaborationIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createConfigStore } = require('../services/configStore.cjs');
 const { createDuplicateCheckService } = require('../services/duplicateCheckService.cjs');
@@ -29,6 +30,8 @@ const { createCompetitiveAnalysisService } = require('../services/competitiveAna
 const { createComplianceCheckService } = require('../services/complianceCheck.cjs');
 const { createPrivateKnowledgeBaseService } = require('../services/privateKnowledgeBase.cjs');
 const { createApiServer } = require('../services/apiServer.cjs');
+const { createCollaborationService } = require('../services/collaborationService.cjs');
+const { createWebSocketServer } = require('../services/websocketService.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -130,6 +133,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
       taskService,
       aiService,
     });
+    const collaborationService = createCollaborationService({ db: sqliteDatabase.db, versionManagementStore });
+    const websocketService = createWebSocketServer({ httpServer: null });
     registerKnowledgeBaseIpc({ knowledgeBaseService });
     registerTechnicalPlanIpc({ technicalPlanStore });
     registerVersionManagementIpc({ versionManagementStore, technicalPlanStore });
@@ -138,6 +143,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService });
     registerPrivateKnowledgeBaseIpc({ privateKnowledgeBaseService });
     registerApiServerIpc({ apiServer });
+    registerCollaborationIpc({ collaborationService, websocketService });
   } catch (error) {
     registerUnavailableTechnicalPlanIpc(error);
   }
