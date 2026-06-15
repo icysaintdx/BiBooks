@@ -6,12 +6,26 @@ const AdmZip = require('adm-zip');
 const { formatDocumentParseError, isLibreOfficeMissingError, normalizeDocumentParseError } = require('./documentParseErrors.cjs');
 const { compactLogError, createDeveloperLogger, textMetrics } = require('../utils/developerLog.cjs');
 const { getImportedImagesDir } = require('../utils/paths.cjs');
+const { parseWithPython } = require('./pythonParserService.cjs');
 
 const parserLabels = {
   local: '本地解析',
   'mineru-accurate-api': 'MinerU 精准解析 API',
   'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
+  'opendataloader': 'OpenDataLoader PDF（本地）',
+  'mineru-local': 'MinerU 本地解析',
+  'auto': '智能路由（推荐）',
 };
+
+// auto 模式：PDF 用 opendataloader，其他用 mineru-local
+const PDF_EXTS = new Set(['.pdf']);
+const MINERU_LOCAL_EXTS = new Set(['.docx', '.doc', '.ppt', '.pptx', '.xlsx', '.xls', '.png', '.jpg', '.jpeg']);
+
+function resolveAutoProvider(ext) {
+  if (PDF_EXTS.has(ext)) return 'opendataloader';
+  if (MINERU_LOCAL_EXTS.has(ext)) return 'mineru-local';
+  return 'local';
+}
 
 const localSupportedExtensions = new Set(['.txt', '.md', '.markdown', '.docx', '.pdf', '.doc', '.wps']);
 const mineruAgentSupportedExtensions = new Set([
@@ -20,6 +34,7 @@ const mineruAgentSupportedExtensions = new Set([
 const mineruAccurateSupportedExtensions = new Set([
   '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.jp2', '.webp', '.gif', '.bmp', '.html',
 ]);
+const pythonLocalSupportedExtensions = new Set(['.pdf', '.docx', '.doc', '.ppt', '.pptx', '.png', '.jpg', '.jpeg']);
 const duplicateCheckSupportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
 const remoteImageTimeoutMs = 10000;
 const markdownImagePattern = /!\[(?<alt>[^\]]*)\]\((?<target><[^>]+>|[^)\s]+)(?<title>\s+"[^"]*")?\)/gi;
@@ -36,6 +51,12 @@ function getSupportedExtensions(provider) {
   if (provider === 'mineru-accurate-api') {
     return mineruAccurateSupportedExtensions;
   }
+  if (provider === 'opendataloader' || provider === 'mineru-local') {
+    return pythonLocalSupportedExtensions;
+  }
+  if (provider === 'auto') {
+    return new Set([...PDF_EXTS, ...MINERU_LOCAL_EXTS, ...localSupportedExtensions]);
+  }
   return localSupportedExtensions;
 }
 
@@ -49,6 +70,13 @@ function getSelectableExtensions(provider) {
 function resolveFileParser(config, filePath) {
   const requestedProvider = config.file_parser?.provider || 'local';
   const ext = path.extname(filePath).toLowerCase();
+
+  // auto 模式：按扩展名分发到最佳解析器
+  if (requestedProvider === 'auto') {
+    const actualProvider = resolveAutoProvider(ext);
+    return { provider: actualProvider, requestedProvider, ext, supported: true, fallbackToLocal: false, isAuto: true };
+  }
+
   const requestedSupported = getSupportedExtensions(requestedProvider).has(ext);
   if (requestedSupported) {
     return { provider: requestedProvider, requestedProvider, ext, supported: true, fallbackToLocal: false };
@@ -530,6 +558,8 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
       markdown = await parseWithMineruAgent(filePath, parseOptions);
     } else if (provider === 'mineru-accurate-api') {
       markdown = await parseWithMineruAccurate(filePath, config.file_parser?.mineru_token || '', parseOptions);
+    } else if (provider === 'opendataloader' || provider === 'mineru-local') {
+      markdown = await parseWithPython(provider, filePath);
     } else {
       markdown = await parseLocalDocument(filePath, parseOptions);
       markdown = preserveImages ? await rewriteMarkdownImages(markdown, assets, { localBaseDir: path.dirname(filePath) }) : stripMarkdownImages(markdown);

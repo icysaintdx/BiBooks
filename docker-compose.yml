@@ -1,0 +1,120 @@
+# BiBooks 自动标书 — Docker Compose 部署配置
+#
+# 使用方式:
+#   1. 复制 .env.example 为 .env 并编辑
+#   2. docker compose up -d
+#
+# 部署场景:
+#   - 单机开发: docker compose up -d
+#   - 有 GPU 服务器: 取消 ollama 的 deploy 注释
+#   - 只用云端 API: 注释掉 ollama 服务
+#   - 不用 PostgreSQL: 设置 MODE=sqlite
+
+version: "3.8"
+
+services:
+  # ========== 核心应用 ==========
+  app:
+    build: .
+    container_name: bibooks-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-9800}:9800"
+    depends_on:
+      - postgres
+      - ollama
+    environment:
+      MODE: "${DB_MODE:-postgres}"
+      PORT: "9800"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: "${DB_NAME:-bibooks}"
+      DB_USER: "${DB_USER:-bibooks}"
+      DB_PASSWORD: "${DB_PASSWORD:-bibooks}"
+      API_KEY: "${API_KEY:-}"
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      TEXT_MODEL_PROVIDER: "${TEXT_MODEL_PROVIDER:-ollama}"
+      TEXT_MODEL_NAME: "${TEXT_MODEL_NAME:-qwen2.5:7b}"
+      TEXT_MODEL_API_KEY: "${TEXT_MODEL_API_KEY:-}"
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+    networks:
+      - bibooks-net
+
+  # ========== 本地小模型（可选） ==========
+  # 注释掉此服务则使用云端 API
+  # 取消 deploy 下的 GPU 配置可启用 GPU 加速
+  ollama:
+    image: ollama/ollama:latest
+    container_name: bibooks-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama/models
+    command: >
+      sh -c "
+        ollama serve &
+        sleep 5
+        ollama pull ${OLLAMA_MODEL_NAME:-qwen2.5:7b}
+        wait
+      "
+    # 有 GPU 时取消注释
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks:
+      - bibooks-net
+
+  # ========== 数据库 ==========
+  postgres:
+    image: postgres:16-alpine
+    container_name: bibooks-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_NAME:-bibooks}"
+      POSTGRES_USER: "${DB_USER:-bibooks}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-bibooks}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # 自定义初始化 SQL
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-bibooks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bibooks-net
+
+  # ========== 反向代理 + 静态文件服务 ==========
+  nginx:
+    image: nginx:alpine
+    container_name: bibooks-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 将构建好的前端放在这里
+      - ./client/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+    networks:
+      - bibooks-net
+
+volumes:
+  app-data:
+  app-logs:
+  ollama-models:
+  pgdata:
+
+networks:
+  bibooks-net:
+    driver: bridge

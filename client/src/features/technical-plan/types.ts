@@ -142,6 +142,7 @@ export interface ContentGenerationRuntimeState {
   expansion_attempted_item_ids?: string[];
   expansion_cycle_start_words?: number;
   target_item_id?: string;
+  target_item_ids?: string[];
   regenerate_requirement?: string;
   updated_at?: string;
 }

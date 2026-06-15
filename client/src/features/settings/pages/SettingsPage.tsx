@@ -254,19 +254,36 @@ function formatImageTestTime(value?: string) {
 }
 
 const fileParserProviders: Array<{ value: FileParserProvider; label: string }> = [
+  { value: 'auto', label: '智能路由【推荐】（PDF→OpenDataLoader，其他→MinerU本地）' },
   { value: 'local', label: '本地解析' },
+  { value: 'opendataloader', label: 'OpenDataLoader PDF（本地增强）' },
+  { value: 'mineru-local', label: 'MinerU 本地解析' },
   { value: 'mineru-accurate-api', label: 'MinerU-精准解析 API' },
   { value: 'mineru-agent-api', label: 'MinerU-Agent 轻量解析 API' },
 ];
 
 const parserOptions = [
   {
+    title: '智能路由（推荐）',
+    badge: '推荐默认',
+    tone: 'primary',
+    summary: 'PDF 自动用 OpenDataLoader（基准第一），Word/PPT/图片自动用 MinerU 本地，其余回落本地解析。',
+    items: [
+      ['依赖', 'Java 11+ + Python + opendataloader-pdf + mineru'],
+      ['解析速度', 'PDF极快，其他中等'],
+      ['支持格式', 'pdf、docx、pptx、xlsx、png、jpg 等'],
+      ['大小/页数', '无限制'],
+      ['解析质量', '各格式最优'],
+      ['扫描件', 'PDF支持，其他需GPU'],
+    ],
+  },
+  {
     title: '本地解析',
     badge: '推荐默认',
     tone: 'primary',
     summary: '覆盖大多数 Word 和带文字层 PDF，速度快、无调用限制。',
     items: [
-      ['Token', '无需'],
+      ['依赖', '无需额外安装'],
       ['解析速度', '快'],
       ['支持格式', 'pdf、jpeg、png、docx、doc、wps、ofd'],
       ['大小/页数', '无限制'],
@@ -275,12 +292,40 @@ const parserOptions = [
     ],
   },
   {
+    title: 'OpenDataLoader PDF（本地）',
+    badge: '基准第一',
+    tone: 'accent',
+    summary: '基准测评第一（0.907），0.015s/页极速，无需 GPU，需要 Java 11+ 和 Python。',
+    items: [
+      ['依赖', 'Java 11+ + Python + opendataloader-pdf'],
+      ['解析速度', '极快（0.015s/页）'],
+      ['支持格式', 'pdf、docx、png、jpg'],
+      ['大小/页数', '无限制'],
+      ['解析质量', '极高（基准第一）'],
+      ['扫描件', '支持（需 hybrid 模式）'],
+    ],
+  },
+  {
+    title: 'MinerU 本地解析',
+    badge: '高精度本地',
+    tone: 'accent',
+    summary: '高精度本地解析，支持多格式、表格→HTML、公式→LaTeX，需要 Python。',
+    items: [
+      ['依赖', 'Python + mineru'],
+      ['解析速度', '中等'],
+      ['支持格式', 'pdf、docx、pptx、xlsx、png、jpg'],
+      ['大小/页数', '无限制'],
+      ['解析质量', '极高'],
+      ['扫描件', '支持（VLM 模式需 GPU）'],
+    ],
+  },
+  {
     title: 'MinerU 精准解析 API',
     badge: '扫描件兜底',
-    tone: 'accent',
+    tone: 'muted',
     summary: '解析质量高，适合本地解析失败或扫描件质量要求高的文档。',
     items: [
-      ['Token', '需要'],
+      ['依赖', 'MinerU Token'],
       ['解析速度', '慢'],
       ['支持格式', 'pdf、jpeg、png、docx'],
       ['大小/页数', '≤ 200MB / ≤ 200 页'],
@@ -294,7 +339,7 @@ const parserOptions = [
     tone: 'muted',
     summary: '无需 Token 但存在 IP 限频，适合轻量文档的备用解析。',
     items: [
-      ['Token', '无需（IP 限频）'],
+      ['依赖', '无需（IP 限频）'],
       ['解析速度', '中等'],
       ['支持格式', 'pdf、jpeg、png、docx'],
       ['大小/页数', '≤ 10MB / ≤ 20 页'],
@@ -346,6 +391,14 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [apiServerPort, setApiServerPort] = useState('9800');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiServerLoading, setApiServerLoading] = useState(false);
+  const [envStatus, setEnvStatus] = useState<{
+    python: { available: boolean; cmd: string | null };
+    java: { available: boolean; version: number | null };
+    packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean };
+  } | null>(null);
+  const [envChecking, setEnvChecking] = useState(false);
+  const [envInstalling, setEnvInstalling] = useState(false);
+  const [envInstallLog, setEnvInstallLog] = useState<string[]>([]);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -726,6 +779,36 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
 
   const saveFileParserConfig = async () => {
     await saveClientConfig(createClientConfig());
+  };
+
+  const checkEnv = async () => {
+    setEnvChecking(true);
+    try {
+      const result = await window.yibiao?.env.check();
+      if (result) setEnvStatus(result);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '环境检测失败', 'error');
+    } finally {
+      setEnvChecking(false);
+    }
+  };
+
+  const installEnv = async () => {
+    setEnvInstalling(true);
+    setEnvInstallLog([]);
+    const unsub = window.yibiao?.env.onInstallProgress(({ message }) => {
+      if (message.trim()) setEnvInstallLog((prev) => [...prev.slice(-200), message.trim()]);
+    });
+    try {
+      const result = await window.yibiao?.env.install();
+      showToast(result?.message || '安装完成', result?.success ? 'success' : 'error');
+      if (result?.success) void checkEnv();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '安装失败', 'error');
+    } finally {
+      setEnvInstalling(false);
+      unsub?.();
+    }
   };
 
   const openConfigFolder = async () => {
@@ -1376,6 +1459,82 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           </div>
           <div className="parser-note">
             招标文件大多数是 Word 或 Word 导出的带文字层 PDF，本地解析可以适应 95% 以上的情况；如果解析失败，再尝试 MinerU 精准解析 API。
+          </div>
+
+          <div className="settings-section-title" style={{ marginTop: 24 }}>
+            <span />
+            <strong>本地增强解析环境</strong>
+          </div>
+          <div className="settings-list">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>环境检测</strong>
+                <span>检测 Python、Java 和本地解析依赖包的安装状态</span>
+              </div>
+              <div className="settings-action-cell">
+                <button type="button" className="inline-action" onClick={checkEnv} disabled={envChecking}>
+                  {envChecking && <span className="inline-spinner" aria-hidden="true" />}
+                  {envChecking ? '检测中' : '检测环境'}
+                </button>
+              </div>
+            </div>
+            {envStatus && (
+              <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
+                  <span style={{ color: envStatus.python.available ? '#52c41a' : '#ff4d4f' }}>
+                    Python: {envStatus.python.available ? `✓ ${envStatus.python.cmd}` : '✗ 未检测到'}
+                  </span>
+                  <span style={{ color: envStatus.java.available ? '#52c41a' : '#faad14' }}>
+                    Java: {envStatus.java.available ? `✓ ${envStatus.java.version}` : `✗ ${envStatus.java.version ? `${envStatus.java.version}（需要 11+）` : '未检测到'}`}
+                  </span>
+                  <span style={{ color: envStatus.packages.opendataloader_pdf ? '#52c41a' : '#ff4d4f' }}>
+                    opendataloader-pdf: {envStatus.packages.opendataloader_pdf ? '✓ 已安装' : '✗ 未安装'}
+                  </span>
+                  <span style={{ color: envStatus.packages.mineru ? '#52c41a' : '#ff4d4f' }}>
+                    MinerU: {envStatus.packages.mineru ? '✓ 已安装' : '✗ 未安装'}
+                  </span>
+                  <span style={{ color: envStatus.packages.pdfplumber ? '#52c41a' : '#faad14' }}>
+                    pdfplumber: {envStatus.packages.pdfplumber ? '✓ 已安装' : '✗ 未安装'}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>一键安装依赖</strong>
+                <span>执行 pip install -r requirements.txt，安装 opendataloader-pdf 和 MinerU</span>
+              </div>
+              <div className="settings-action-cell">
+                <button
+                  type="button"
+                  className="inline-action"
+                  onClick={installEnv}
+                  disabled={envInstalling || !envStatus?.python.available}
+                >
+                  {envInstalling && <span className="inline-spinner" aria-hidden="true" />}
+                  {envInstalling ? '安装中...' : '安装依赖'}
+                </button>
+              </div>
+            </div>
+            {envInstallLog.length > 0 && (
+              <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                <pre style={{
+                  width: '100%',
+                  maxHeight: 200,
+                  overflow: 'auto',
+                  background: '#1a1a1a',
+                  color: '#e0e0e0',
+                  fontSize: 12,
+                  padding: 12,
+                  borderRadius: 6,
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}>
+                  {envInstallLog.join('\n')}
+                </pre>
+              </div>
+            )}
           </div>
         </section>
       )}

@@ -9,6 +9,8 @@ import PrivateKnowledgeBasePage from '../features/knowledge-base/pages/PrivateKn
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
 import SettingsPage from '../features/settings/pages/SettingsPage';
 import TechnicalPlanHome from '../features/technical-plan/pages/TechnicalPlanHome';
+import CompetitiveAnalysisStandalonePage from '../features/competitive-analysis/pages/CompetitiveAnalysisStandalonePage';
+import ComplianceCheckStandalonePage from '../features/compliance-check/pages/ComplianceCheckStandalonePage';
 
 interface AppRouterProps {
   activeSection: SectionId;
@@ -33,6 +35,10 @@ function AppRouter({ activeSection, onDeveloperModeChange }: AppRouterProps) {
       return <RejectionCheckPage />;
     case 'bid-opportunity':
       return <BidOpportunityPage />;
+    case 'competitive-analysis':
+      return <CompetitiveAnalysisStandalonePage />;
+    case 'compliance-check':
+      return <ComplianceCheckStandalonePage />;
     case 'developer-test':
       return <DeveloperTestPage />;
     case 'settings':
@@ -43,3 +49,4 @@ function AppRouter({ activeSection, onDeveloperModeChange }: AppRouterProps) {
 }
 
 export default AppRouter;
+

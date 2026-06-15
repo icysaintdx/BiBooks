@@ -507,7 +507,12 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
         ? rejectionCheckStore
         : duplicateCheckStore;
     runner({ aiService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, updateTask, payload, taskControl, previousState }).catch((error) => {
-      const failedTask = updateTask({ status: 'error', error: error.message || '任务执行失败' });
+      const errorMsg = error.message || '任务执行失败';
+      try {
+        const { writeRuntimeLog } = require('./aiService.cjs');
+        writeRuntimeLog(app, 'ERROR', `任务执行失败: ${type}`, { error: errorMsg, stack: error.stack?.slice(0, 500) });
+      } catch {}
+      const failedTask = updateTask({ status: 'error', error: errorMsg });
       const nextState = updateWorkspaceState(definition, { [taskField]: failedTask });
       emit(failedTask, buildSnapshot(definition, nextState, failedTask));
     }).finally(() => {

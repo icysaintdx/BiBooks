@@ -9,6 +9,8 @@ const bridge = {
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
   startUpdate: () => ipcRenderer.invoke('app:start-update'),
   quitAndInstall: () => ipcRenderer.invoke('app:quit-and-install'),
+  readRuntimeLog: () => ipcRenderer.invoke('app:read-runtime-log'),
+  getLogPath: () => ipcRenderer.invoke('app:get-log-path'),
   onUpdateProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('app:update-progress', listener);
@@ -197,6 +199,9 @@ const bridge = {
     generateReport: (template, context) => ipcRenderer.invoke('docx-template:generate-report', template, context),
   },
   commercialBid: {
+    list: () => ipcRenderer.invoke('commercial-bid:list'),
+    save: (bid) => ipcRenderer.invoke('commercial-bid:save', bid),
+    delete: (id) => ipcRenderer.invoke('commercial-bid:delete', id),
     generate: (options) => ipcRenderer.invoke('commercial-bid:generate', options),
     generatePrice: (options) => ipcRenderer.invoke('commercial-bid:generate-price', options),
     generateTerms: (options) => ipcRenderer.invoke('commercial-bid:generate-terms', options),
@@ -210,6 +215,7 @@ const bridge = {
     getQualificationTypes: () => ipcRenderer.invoke('commercial-bid:get-qualification-types'),
   },
   bidOpportunity: {
+    list: () => ipcRenderer.invoke('bid-opportunity:list'),
     create: (data) => ipcRenderer.invoke('bid-opportunity:create', data),
     analyze: (opportunity, analysisData) => ipcRenderer.invoke('bid-opportunity:analyze', opportunity, analysisData),
     generateRecommendation: (analysisResult) => ipcRenderer.invoke('bid-opportunity:generate-recommendation', analysisResult),
@@ -220,6 +226,16 @@ const bridge = {
     getStatuses: () => ipcRenderer.invoke('bid-opportunity:get-statuses'),
     getDecisionFactors: () => ipcRenderer.invoke('bid-opportunity:get-decision-factors'),
     getTenderSources: () => ipcRenderer.invoke('bid-opportunity:get-tender-sources'),
+    delete: (id) => ipcRenderer.invoke('bid-opportunity:delete', id),
+  },
+  env: {
+    check: () => ipcRenderer.invoke('env:check'),
+    install: () => ipcRenderer.invoke('env:install'),
+    onInstallProgress: (callback) => {
+      const handler = (_event, data) => callback(data);
+      ipcRenderer.on('env:install-progress', handler);
+      return () => ipcRenderer.removeListener('env:install-progress', handler);
+    },
   },
 };
 

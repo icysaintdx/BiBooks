@@ -41,6 +41,16 @@ export const appMenuItems: AppMenuItem[] = [
     label: '投标机会',
     description: '机会发现与线索跟踪',
   },
+  {
+    id: 'competitive-analysis',
+    label: '竞争分析',
+    description: '评分权重与竞争策略',
+  },
+  {
+    id: 'compliance-check',
+    label: '合规检查',
+    description: '投标文件合规性验证',
+  },
 ];
 
 const developerMenuItems: AppMenuItem[] = [

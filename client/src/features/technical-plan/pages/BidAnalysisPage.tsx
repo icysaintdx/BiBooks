@@ -420,6 +420,26 @@ function BidAnalysisPage({
             <div className="markdown-empty-state bid-analysis-empty">
               <strong>{activeTaskStatus === 'error' ? activeTaskState?.error || '解析失败' : '等待解析结果'}</strong>
               <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看实时输出。' : '正在等待模型返回内容。'}</p>
+              {activeTaskStatus === 'error' && (
+                <button
+                  type="button"
+                  className="secondary-action"
+                  style={{ marginTop: 12, fontSize: 12 }}
+                  onClick={async () => {
+                    try {
+                      const log = await window.yibiao?.readRuntimeLog();
+                      if (log) {
+                        const lines = log.trim().split('\n').slice(-20).join('\n');
+                        alert(`最近日志（最后20行）：\n\n${lines}`);
+                      } else {
+                        alert('暂无运行日志');
+                      }
+                    } catch { alert('读取日志失败'); }
+                  }}
+                >
+                  查看运行日志
+                </button>
+              )}
             </div>
           )}
         </article>

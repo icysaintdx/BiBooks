@@ -57,7 +57,7 @@ export interface ImageModelConfig {
 
 export type ImageModelProfiles = Record<ImageModelProvider, ImageModelConfig>;
 
-export type FileParserProvider = 'local' | 'mineru-accurate-api' | 'mineru-agent-api';
+export type FileParserProvider = 'local' | 'mineru-accurate-api' | 'mineru-agent-api' | 'opendataloader' | 'mineru-local' | 'auto';
 
 export interface FileParserConfig {
   provider: FileParserProvider;

@@ -7,6 +7,8 @@ export type SectionId =
   | 'duplicate-check'
   | 'rejection-check'
   | 'bid-opportunity'
+  | 'competitive-analysis'
+  | 'compliance-check'
   | 'developer-test'
   | 'settings';
 

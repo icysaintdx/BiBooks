@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 5;
+const schemaVersion = 6;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -628,6 +628,40 @@ function createScoringAnalysisSchema(db) {
   `);
 }
 
+function createBidModulesSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_opportunities (
+      id TEXT PRIMARY KEY,
+      project_name TEXT NOT NULL,
+      tender_no TEXT NOT NULL DEFAULT '',
+      client_name TEXT NOT NULL DEFAULT '',
+      budget REAL NOT NULL DEFAULT 0,
+      deadline TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'other',
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'discovered',
+      decision_score REAL NOT NULL DEFAULT 0,
+      decision_factors_json TEXT NOT NULL DEFAULT '{}',
+      notes_json TEXT NOT NULL DEFAULT '[]',
+      status_history_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS commercial_bids (
+      id TEXT PRIMARY KEY,
+      project_name TEXT NOT NULL,
+      company_name TEXT NOT NULL DEFAULT '',
+      price_type TEXT NOT NULL DEFAULT 'lumpSum',
+      sections_json TEXT NOT NULL DEFAULT '[]',
+      result_json TEXT,
+      report TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
 const migrations = [
   {
     version: 1,
@@ -653,6 +687,11 @@ const migrations = [
     version: 5,
     description: '新增评分分析 JSON 字段',
     up: createScoringAnalysisSchema,
+  },
+  {
+    version: 6,
+    description: '新增投标机会和商务标持久化表',
+    up: createBidModulesSchema,
   },
 ];
 

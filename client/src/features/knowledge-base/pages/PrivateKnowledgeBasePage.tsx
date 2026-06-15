@@ -150,6 +150,40 @@ export default function PrivateKnowledgeBasePage() {
     loadItems();
   };
 
+  const handleExport = async () => {
+    try {
+      const data = await window.yibiao?.privateKnowledgeBase.exportItems(selectedCategory || undefined);
+      if (!data) return;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `private-kb${selectedCategory ? `-${selectedCategory}` : ''}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('导出失败:', err);
+    }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const items = JSON.parse(text);
+      const result = await window.yibiao?.privateKnowledgeBase.importItems(items);
+      if (result) {
+        alert(`导入完成：成功 ${result.success} 条，失败 ${result.failed} 条`);
+        loadItems();
+        loadStatistics();
+      }
+    } catch (err) {
+      alert(`导入失败: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    e.target.value = '';
+  };
+
   const getCategoryIcon = (categoryId: string) => {
     return categories[categoryId]?.icon || '📄';
   };
@@ -272,6 +306,11 @@ export default function PrivateKnowledgeBasePage() {
                 + 新增{getCategoryName(selectedCategory)}
               </button>
             )}
+            <button type="button" className="secondary-action" onClick={handleExport}>导出</button>
+            <label className="secondary-action" style={{ cursor: 'pointer' }}>
+              导入
+              <input type="file" accept=".json" style={{ display: 'none' }} onChange={handleImport} />
+            </label>
           </div>
 
           {/* 知识项列表 */}

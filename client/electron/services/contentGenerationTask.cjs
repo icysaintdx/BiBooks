@@ -2046,6 +2046,7 @@ function normalizeContentGenerationRuntime(value) {
     expansion_attempted_item_ids: normalizeStringArray(source.expansion_attempted_item_ids || source.expansionAttemptedItemIds),
     expansion_cycle_start_words: Math.max(0, Math.round(Number(source.expansion_cycle_start_words ?? source.expansionCycleStartWords) || 0)),
     target_item_id: String(source.target_item_id || source.targetItemId || '').trim(),
+    target_item_ids: normalizeStringArray(source.target_item_ids || source.targetItemIds),
     regenerate_requirement: String(source.regenerate_requirement || source.regenerateRequirement || '').trim(),
     updated_at: source.updated_at || source.updatedAt || now(),
   };
@@ -2207,7 +2208,16 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   let contentRuntime = normalizeContentGenerationRuntime(resume ? storedPlan.contentGenerationRuntime : {});
   const regenerate = !resume && Boolean(payload.regenerate);
   const targetItemId = resume ? contentRuntime.target_item_id : String(payload.targetItemId || '').trim();
-  const fullRegenerate = regenerate && !targetItemId;
+  const rawTargetItemIds = resume
+    ? (contentRuntime.target_item_ids || (contentRuntime.target_item_id ? [contentRuntime.target_item_id] : []))
+    : Array.isArray(payload.targetItemIds)
+      ? payload.targetItemIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : targetItemId
+        ? [targetItemId]
+        : [];
+  const targetItemIds = [...new Set(rawTargetItemIds)];
+  const hasTargets = targetItemIds.length > 0;
+  const fullRegenerate = regenerate && !hasTargets;
   if (fullRegenerate) {
     outlineData = { ...outlineData, outline: clearOutlineContent(outlineData.outline) };
   }
@@ -2224,17 +2234,17 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   const developerModeEnabled = isDeveloperModeEnabled(aiService);
   const tableRequirement = normalizeTableRequirement(generationOptions.tableRequirement ?? generationOptions.table_requirement);
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
-  const minimumWords = targetItemId ? 0 : normalizeMinimumWords(generationOptions.minimumWords ?? generationOptions.minimum_words);
+  const minimumWords = hasTargets ? 0 : normalizeMinimumWords(generationOptions.minimumWords ?? generationOptions.minimum_words);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
   const imageAvailability = aiService.getImageModelAvailability
     ? aiService.getImageModelAvailability()
     : { available: false, message: '生图模型不可用' };
   const aiImagesEnabled = Boolean(generationOptions.useAiImages ?? generationOptions.use_ai_images ?? imageAvailability.available) && imageAvailability.available;
-  const mermaidImagesEnabled = Boolean(generationOptions.useMermaidImages ?? generationOptions.use_mermaid_images ?? Boolean(targetItemId));
+  const mermaidImagesEnabled = Boolean(generationOptions.useMermaidImages ?? generationOptions.use_mermaid_images ?? hasTargets);
   const enableConsistencyAudit = Boolean(generationOptions.enableConsistencyAudit ?? generationOptions.enable_consistency_audit ?? true);
   const requestedMaxImages = Number(generationOptions.maxAiImages ?? generationOptions.max_ai_images);
   const configuredMaxAiImages = aiImagesEnabled
-    ? Math.max(0, Math.min(Number.isFinite(requestedMaxImages) ? Math.round(requestedMaxImages) : 6, targetItemId ? 1 : leaves.length))
+    ? Math.max(0, Math.min(Number.isFinite(requestedMaxImages) ? Math.round(requestedMaxImages) : 6, hasTargets ? targetItemIds.length : leaves.length))
     : 0;
   const imageStats = { ai: createImageStat(), mermaid: createImageStat() };
   const contentStats = {
@@ -2264,6 +2274,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   contentRuntime = normalizeContentGenerationRuntime({
     ...contentRuntime,
     target_item_id: targetItemId,
+    target_item_ids: targetItemIds,
     regenerate_requirement: regenerateRequirement,
   });
   const contentPlans = new Map();
@@ -2281,13 +2292,18 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     const content = section?.content || item.content || '';
     return regenerate || section?.status === 'error' || !String(content).trim();
   });
-  if (targetItemId) {
-    const targetSection = sections[targetItemId];
-    tasksToRun = resume && targetSection?.status === 'success' && touchedItemIds.has(targetItemId)
-      ? []
-      : leaves.filter(({ item }) => item.id === targetItemId);
-    if (!tasksToRun.length && (!resume || targetSection?.status !== 'success')) {
-      throw new Error('未找到要重新生成的正文小节');
+  if (hasTargets) {
+    const targetSet = new Set(targetItemIds);
+    tasksToRun = leaves.filter(({ item }) => {
+      if (!targetSet.has(item.id)) return false;
+      const section = sections[item.id];
+      return !(resume && section?.status === 'success' && touchedItemIds.has(item.id));
+    });
+    if (!tasksToRun.length) {
+      const allSuccess = targetItemIds.every((id) => sections[id]?.status === 'success');
+      if (!resume || !allSuccess) {
+        throw new Error('未找到要重新生成的正文小节');
+      }
     }
   }
 
@@ -2326,8 +2342,10 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
 
   refreshRunLimits(tasksToRun);
   let logs = [resume ? `继续已暂停的正文生成任务，共 ${leaves.length} 个小节。` : `准备生成正文，共 ${leaves.length} 个小节。`];
-  if (targetItemId) {
-    logs = [`准备重新生成正文小节：${targetItemId}。`];
+  if (hasTargets) {
+    logs = targetItemIds.length === 1
+      ? [`准备重新生成正文小节：${targetItemIds[0]}。`]
+      : [`准备批量扩写 ${targetItemIds.length} 个小节：${targetItemIds.join('、')}。`];
   }
   logs = [...logs, `正文生成并发速度：${contentConcurrency}。`];
   logs = [...logs, tableRequirement === 'heavy'
@@ -2349,10 +2367,11 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     : '全文一致性审计未启用，本次正文生成将直接进入配图阶段。'];
 
   const developerLogger = createContentDeveloperLogger(aiService, {
-    name: targetItemId ? `content-generation-${targetItemId}` : 'content-generation',
+    name: hasTargets ? `content-generation-${targetItemIds[0]}` : 'content-generation',
     meta: {
-      mode: targetItemId ? 'single-section' : 'full',
+      mode: hasTargets ? (targetItemIds.length > 1 ? 'batch-expand' : 'single-section') : 'full',
       target_item_id: targetItemId || '',
+      target_item_ids: targetItemIds,
       resume,
       regenerate,
       full_regenerate: fullRegenerate,
@@ -2727,7 +2746,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     const { item, parentChapters, siblingChapters } = context;
     const previousSection = sections[item.id] || {};
     const previousContent = previousSection.content || item.content || '';
-    const isSingleSectionRegeneration = Boolean(targetItemId);
+    const isSingleSectionRegeneration = hasTargets;
     let rawContent = regenerate || retryItemIds.has(item.id) ? '' : previousContent;
     let content = stripRepeatedChapterTitle(normalizeGeneratedMarkdown(rawContent), item);
     logs = [...logs, `开始生成：${item.id} ${item.title || '未命名章节'}`];

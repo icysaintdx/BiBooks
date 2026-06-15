@@ -61,9 +61,9 @@ function CollaborationPage({ technicalPlan, onSessionCreated }: CollaborationPag
       });
 
       if (result?.success && result.session) {
-        setSession(result.session);
+        setSession(result.session as CollaborationSession);
         setIsConnected(true);
-        onSessionCreated?.(result.session);
+        onSessionCreated?.(result.session as CollaborationSession);
       } else {
         setError(result?.error || '创建会话失败');
       }
@@ -83,7 +83,7 @@ function CollaborationPage({ technicalPlan, onSessionCreated }: CollaborationPag
       const result = await window.yibiao?.collaboration?.getSession({ sessionId });
 
       if (result?.success && result.session) {
-        setSession(result.session);
+        setSession(result.session as CollaborationSession);
         setIsConnected(true);
       } else {
         setError(result?.error || '加入会话失败');
@@ -120,7 +120,7 @@ function CollaborationPage({ technicalPlan, onSessionCreated }: CollaborationPag
         });
 
         if (result?.success && result.stats) {
-          setSessionStats(result.stats);
+          setSessionStats(result.stats as { operationCount: number; participantCount: number; latestVersion: number });
         }
       } catch (err) {
         console.error('获取统计失败:', err);

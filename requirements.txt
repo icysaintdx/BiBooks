@@ -1,0 +1,21 @@
+# BiBooks 本地 PDF/文档增强解析依赖
+# 版本：v1.0 (2026-06-10)
+# 说明：用于本地增强解析（opendataloader-pdf 和 MinerU 本地模式）
+# 安装命令：pip install -r requirements.txt
+
+# ── 基础文档解析 ──────────────────────────────────────────────
+pdfplumber==0.11.4
+pypdf==6.6.2
+python-docx>=1.2.0
+openpyxl==3.1.5
+jieba==0.42.1
+
+# ── opendataloader-pdf（基准 #1，无 GPU，需要 Java 11+）──────
+opendataloader-pdf==2.4.7
+
+# ── MinerU 本地解析（pipeline 模式，CPU/GPU 均可）────────────
+mineru[pipeline]==3.2.3
+
+# ── MinerU 可选扩展（VLM 高精度模式，需要 GPU）──────────────
+# mineru[vlm]==2.0.0
+# mineru[pipeline,vlm]==2.0.0

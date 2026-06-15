@@ -19,6 +19,8 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,
   'bid-opportunity': RadarIcon,
+  'competitive-analysis': TrophyIcon,
+  'compliance-check': ClipboardCheckIcon,
   'developer-test': FlaskIcon,
   settings: GearIcon,
 };
@@ -221,6 +223,27 @@ function FlaskIcon(props: SVGProps<SVGSVGElement>) {
       <path d="M10.5 3.8v5.4l-4.2 7.4c-.85 1.5.24 3.4 1.96 3.4h7.48c1.72 0 2.81-1.9 1.96-3.4l-4.2-7.4V3.8" />
       <path d="M8.5 15.8h7" />
       <path d="M10 12.5h4" />
+    </svg>
+  );
+}
+
+function TrophyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M8 21h8M12 17v4" />
+      <path d="M7 4H4v5c0 2.2 1.8 4 4 4" />
+      <path d="M17 4h3v5c0 2.2-1.8 4-4 4" />
+      <path d="M7 4h10v7a5 5 0 0 1-10 0V4Z" />
+    </svg>
+  );
+}
+
+function ClipboardCheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+      <path d="M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2Z" />
+      <path d="m9 13 2 2 4-4" />
     </svg>
   );
 }

@@ -1,0 +1,18 @@
+{
+  "name": "bibooks-server",
+  "version": "1.0.0",
+  "description": "BiBooks 自动标书 — 服务器版（支持多人协同、Docker 部署）",
+  "main": "index.cjs",
+  "scripts": {
+    "start": "node index.cjs",
+    "dev": "node --watch index.cjs",
+    "migrate": "node migrate-sqlite-to-postgres.cjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "pg": "^8.13.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  }
+}

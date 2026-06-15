@@ -120,6 +120,21 @@ function writeAiLog(app, config, payload) {
   fs.writeFileSync(path.join(logsDir, fileName), JSON.stringify(logPayload, null, 2), 'utf-8');
 }
 
+// 始终生效的运行日志（不受 developer_mode 限制）
+function writeRuntimeLog(app, level, message, detail) {
+  try {
+    const logsDir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const logFile = path.join(logsDir, 'runtime.log');
+    const timestamp = new Date().toISOString();
+    const detailStr = detail ? ` | ${typeof detail === 'string' ? detail : JSON.stringify(detail)}` : '';
+    const line = `[${timestamp}] [${level}] ${message}${detailStr}\n`;
+    fs.appendFileSync(logFile, line, 'utf-8');
+  } catch {
+    // 日志写入失败不应影响主流程
+  }
+}
+
 function createModuleDeveloperLogger(app, config, moduleName, request = {}) {
   return createDeveloperLogger({
     app,
@@ -751,12 +766,26 @@ async function fetchChatCompletion(app, config, body, options = {}) {
   const timer = controller ? setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS) : null;
   try {
     const baseUrl = requireBaseUrl(config.base_url, '请先在设置中配置文本模型 Base URL');
-    return await fetch(`${baseUrl}/chat/completions`, {
+    const url = `${baseUrl}/chat/completions`;
+    writeRuntimeLog(app, 'INFO', `AI 请求发起`, { url, model: body.model });
+    const resp = await fetch(url, {
       method: 'POST',
       headers: createHeaders(config.api_key),
       body: JSON.stringify(body),
       signal: options.signal || controller.signal,
     });
+    writeRuntimeLog(app, 'INFO', `AI 响应状态`, { status: resp.status, ok: resp.ok });
+    return resp;
+  } catch (error) {
+    writeRuntimeLog(app, 'ERROR', `AI fetch 异常`, {
+      url: `${config.base_url}/chat/completions`,
+      model: body.model,
+      error: error.message,
+      name: error.name,
+      cause: error.cause ? String(error.cause) : undefined,
+      code: error.code,
+    });
+    throw error;
   } finally {
     if (timer) {
       clearTimeout(timer);
@@ -825,6 +854,13 @@ async function chatWithConfig(app, config, request) {
     errorMessage = error.name === 'AbortError'
       ? request.timeout_message || `AI 请求超时（${timeoutMs / 1000} 秒）`
       : error.message;
+    writeRuntimeLog(app, 'ERROR', `AI 请求失败: ${logTitle}`, {
+      url: `${trimBaseUrl(config.base_url)}/chat/completions`,
+      model: config.model_name,
+      error: errorMessage,
+      errorName: error.name,
+      cause: error.cause ? String(error.cause) : undefined,
+    });
     if (!analyticsTracked) {
       trackAiRequest(app, config, { ai_request_type: 'text' });
       analyticsTracked = true;
@@ -1266,4 +1302,5 @@ function createAiService({ app, configStore }) {
 
 module.exports = {
   createAiService,
+  writeRuntimeLog,
 };

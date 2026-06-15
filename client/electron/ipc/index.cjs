@@ -6,6 +6,7 @@ const { registerDuplicateCheckIpc } = require('./duplicateCheckIpc.cjs');
 const { registerExportIpc } = require('./exportIpc.cjs');
 const { registerFileIpc } = require('./fileIpc.cjs');
 const { registerKnowledgeBaseIpc } = require('./knowledgeBaseIpc.cjs');
+const { registerEnvCheckIpc } = require('./envCheckIpc.cjs');
 const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
@@ -41,7 +42,8 @@ const { createTaskRetryService } = require('../services/taskRetryService.cjs');
 const { createDocxTemplateService } = require('../services/docxTemplateService.cjs');
 const { createCommercialBidService } = require('../services/commercialBidService.cjs');
 const { createBidOpportunityService } = require('../services/bidOpportunityService.cjs');
-const { createBidOpportunityService } = require('../services/bidOpportunityService.cjs');
+const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
+const { createCommercialBidStore } = require('../services/commercialBidStore.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -117,10 +119,23 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   const fileService = createFileService({ app, configStore });
   const exportService = createExportService({ configStore });
 
+  // 运行日志 IPC（始终可用）
+  const runtimeLogPath = require('node:path').join(app.getPath('userData'), 'logs', 'runtime.log');
+  ipcMain.handle('app:read-runtime-log', () => {
+    try {
+      if (require('node:fs').existsSync(runtimeLogPath)) {
+        return require('node:fs').readFileSync(runtimeLogPath, 'utf-8');
+      }
+      return '';
+    } catch { return ''; }
+  });
+  ipcMain.handle('app:get-log-path', () => runtimeLogPath);
+
   registerConfigIpc({ configStore, aiService });
   registerAiIpc({ aiService });
   registerFileIpc({ fileService });
   registerExportIpc({ exportService });
+  registerEnvCheckIpc(mainWindow);
 
   try {
     const sqliteDatabase = createSqliteDatabase(app);
@@ -145,6 +160,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     });
     const collaborationService = createCollaborationService({ db: sqliteDatabase.db, versionManagementStore });
     const websocketService = createWebSocketServer({ httpServer: null });
+    const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db });
+    const commercialBidStore = createCommercialBidStore({ db: sqliteDatabase.db });
     registerKnowledgeBaseIpc({ knowledgeBaseService });
     registerTechnicalPlanIpc({ technicalPlanStore });
     registerVersionManagementIpc({ versionManagementStore, technicalPlanStore });
@@ -154,6 +171,77 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     registerPrivateKnowledgeBaseIpc({ privateKnowledgeBaseService });
     registerApiServerIpc({ apiServer });
     registerCollaborationIpc({ collaborationService, websocketService });
+
+    // 投标机会持久化 IPC
+    const bidOpportunityService = createBidOpportunityService();
+    ipcMain.handle('bid-opportunity:list', () => bidOpportunityStore.list());
+    ipcMain.handle('bid-opportunity:create', (_event, data) => {
+      const opp = bidOpportunityService.createOpportunity(data);
+      return bidOpportunityStore.save(opp);
+    });
+    ipcMain.handle('bid-opportunity:analyze', (_event, opportunity, analysisData) => {
+      const result = bidOpportunityService.analyzeOpportunity(opportunity, analysisData);
+      return bidOpportunityStore.save(result);
+    });
+    ipcMain.handle('bid-opportunity:generate-recommendation', (_event, analysisResult) => {
+      return bidOpportunityService.generateDecisionRecommendation(analysisResult);
+    });
+    ipcMain.handle('bid-opportunity:update-status', (_event, opportunity, newStatus, notes) => {
+      const result = bidOpportunityService.updateOpportunityStatus(opportunity, newStatus, notes);
+      return bidOpportunityStore.save(result);
+    });
+    ipcMain.handle('bid-opportunity:delete', (_event, id) => {
+      bidOpportunityStore.remove(id);
+      return { success: true };
+    });
+    ipcMain.handle('bid-opportunity:generate-calendar', (_event, opportunities) => {
+      return bidOpportunityService.generateBidCalendar(opportunities);
+    });
+    ipcMain.handle('bid-opportunity:analyze-competition', (_event, opportunity, competitors) => {
+      return bidOpportunityService.analyzeCompetition(opportunity, competitors);
+    });
+    ipcMain.handle('bid-opportunity:generate-report', (_event, opportunities) => {
+      return bidOpportunityService.generateOpportunityReport(opportunities);
+    });
+    ipcMain.handle('bid-opportunity:get-statuses', () => bidOpportunityService.OPPORTUNITY_STATUS);
+    ipcMain.handle('bid-opportunity:get-decision-factors', () => bidOpportunityService.DECISION_FACTORS);
+    ipcMain.handle('bid-opportunity:get-tender-sources', () => bidOpportunityService.TENDER_SOURCES);
+
+    // 商务标持久化 IPC
+    const commercialBidService = createCommercialBidService();
+    ipcMain.handle('commercial-bid:list', () => commercialBidStore.list());
+    ipcMain.handle('commercial-bid:save', (_event, bid) => commercialBidStore.save(bid));
+    ipcMain.handle('commercial-bid:delete', (_event, id) => {
+      commercialBidStore.remove(id);
+      return { success: true };
+    });
+    ipcMain.handle('commercial-bid:generate', (_event, options) => {
+      return commercialBidService.generateCommercialBid(options);
+    });
+    ipcMain.handle('commercial-bid:generate-price', (_event, options) => {
+      return commercialBidService.generatePriceContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-terms', (_event, options) => {
+      return commercialBidService.generateTermsContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-qualifications', (_event, options) => {
+      return commercialBidService.generateQualificationsContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-performance', (_event, options) => {
+      return commercialBidService.generatePerformanceContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-financial', (_event, options) => {
+      return commercialBidService.generateFinancialContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-service', (_event, options) => {
+      return commercialBidService.generateServiceContent(options);
+    });
+    ipcMain.handle('commercial-bid:generate-report', (_event, bid) => {
+      return commercialBidService.generateCommercialBidReport(bid);
+    });
+    ipcMain.handle('commercial-bid:get-sections', () => commercialBidService.COMMERCIAL_BID_SECTIONS);
+    ipcMain.handle('commercial-bid:get-price-templates', () => commercialBidService.PRICE_TEMPLATES);
+    ipcMain.handle('commercial-bid:get-qualification-types', () => commercialBidService.QUALIFICATION_TYPES);
   } catch (error) {
     registerUnavailableTechnicalPlanIpc(error);
   }
@@ -279,75 +367,6 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   });
   ipcMain.handle('docx-template:generate-report', (_event, template, context) => {
     return docxTemplateService.generateTemplateReport(template, context);
-  });
-
-  // 商务标服务 IPC
-  const commercialBidService = createCommercialBidService();
-  ipcMain.handle('commercial-bid:generate', (_event, options) => {
-    return commercialBidService.generateCommercialBid(options);
-  });
-  ipcMain.handle('commercial-bid:generate-price', (_event, options) => {
-    return commercialBidService.generatePriceContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-terms', (_event, options) => {
-    return commercialBidService.generateTermsContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-qualifications', (_event, options) => {
-    return commercialBidService.generateQualificationsContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-performance', (_event, options) => {
-    return commercialBidService.generatePerformanceContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-financial', (_event, options) => {
-    return commercialBidService.generateFinancialContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-service', (_event, options) => {
-    return commercialBidService.generateServiceContent(options);
-  });
-  ipcMain.handle('commercial-bid:generate-report', (_event, commercialBid) => {
-    return commercialBidService.generateCommercialBidReport(commercialBid);
-  });
-  ipcMain.handle('commercial-bid:get-sections', () => {
-    return commercialBidService.COMMERCIAL_BID_SECTIONS;
-  });
-  ipcMain.handle('commercial-bid:get-price-templates', () => {
-    return commercialBidService.PRICE_TEMPLATES;
-  });
-  ipcMain.handle('commercial-bid:get-qualification-types', () => {
-    return commercialBidService.QUALIFICATION_TYPES;
-  });
-
-  // 投标机会服务 IPC
-  const bidOpportunityService = createBidOpportunityService();
-  ipcMain.handle('bid-opportunity:create', (_event, data) => {
-    return bidOpportunityService.createOpportunity(data);
-  });
-  ipcMain.handle('bid-opportunity:analyze', (_event, opportunity, analysisData) => {
-    return bidOpportunityService.analyzeOpportunity(opportunity, analysisData);
-  });
-  ipcMain.handle('bid-opportunity:generate-recommendation', (_event, analysisResult) => {
-    return bidOpportunityService.generateDecisionRecommendation(analysisResult);
-  });
-  ipcMain.handle('bid-opportunity:update-status', (_event, opportunity, newStatus, notes) => {
-    return bidOpportunityService.updateOpportunityStatus(opportunity, newStatus, notes);
-  });
-  ipcMain.handle('bid-opportunity:generate-calendar', (_event, opportunities) => {
-    return bidOpportunityService.generateBidCalendar(opportunities);
-  });
-  ipcMain.handle('bid-opportunity:analyze-competition', (_event, opportunity, competitors) => {
-    return bidOpportunityService.analyzeCompetition(opportunity, competitors);
-  });
-  ipcMain.handle('bid-opportunity:generate-report', (_event, opportunities) => {
-    return bidOpportunityService.generateOpportunityReport(opportunities);
-  });
-  ipcMain.handle('bid-opportunity:get-statuses', () => {
-    return bidOpportunityService.OPPORTUNITY_STATUS;
-  });
-  ipcMain.handle('bid-opportunity:get-decision-factors', () => {
-    return bidOpportunityService.DECISION_FACTORS;
-  });
-  ipcMain.handle('bid-opportunity:get-tender-sources', () => {
-    return bidOpportunityService.TENDER_SOURCES;
   });
 
   ipcMain.handle('app:open-external', async (_event, url) => {

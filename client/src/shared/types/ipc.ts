@@ -337,4 +337,55 @@ export interface YibiaoBridge {
     exportWord: (payload: unknown) => Promise<WordExportResult>;
     onWordExportProgress: (callback: (event: WordExportProgressEvent) => void) => () => void;
   };
+  commercialBid: {
+    list: () => Promise<unknown[]>;
+    save: (bid: unknown) => Promise<unknown>;
+    delete: (id: string) => Promise<{ success: boolean }>;
+    generate: (options: unknown) => Promise<unknown>;
+    generatePrice: (options: unknown) => Promise<unknown>;
+    generateTerms: (options: unknown) => Promise<unknown>;
+    generateQualifications: (options: unknown) => Promise<unknown>;
+    generatePerformance: (options: unknown) => Promise<unknown>;
+    generateFinancial: (options: unknown) => Promise<unknown>;
+    generateService: (options: unknown) => Promise<unknown>;
+    generateReport: (commercialBid: unknown) => Promise<string>;
+    getSections: () => Promise<unknown>;
+    getPriceTemplates: () => Promise<unknown>;
+    getQualificationTypes: () => Promise<unknown>;
+  };
+  bidOpportunity: {
+    list: () => Promise<unknown[]>;
+    create: (data: unknown) => Promise<unknown>;
+    analyze: (opportunity: unknown, analysisData: unknown) => Promise<unknown>;
+    generateRecommendation: (analysisResult: unknown) => Promise<unknown>;
+    updateStatus: (opportunity: unknown, newStatus: string, notes: string) => Promise<unknown>;
+    generateCalendar: (opportunities: unknown[]) => Promise<unknown>;
+    analyzeCompetition: (opportunity: unknown, competitors: unknown[]) => Promise<unknown>;
+    generateReport: (opportunities: unknown[]) => Promise<string>;
+    getStatuses: () => Promise<unknown>;
+    getDecisionFactors: () => Promise<unknown>;
+    getTenderSources: () => Promise<unknown>;
+    delete: (id: string) => Promise<{ success: boolean }>;
+  };
+  collaboration: {
+    createSession: (payload: unknown) => Promise<{ success?: boolean; session?: unknown; error?: string }>;
+    joinSession: (payload: unknown) => Promise<{ success?: boolean; session?: unknown; error?: string }>;
+    leaveSession: (payload: unknown) => Promise<unknown>;
+    getSession: (payload: unknown) => Promise<{ success?: boolean; session?: unknown; error?: string }>;
+    closeSession: (payload: unknown) => Promise<unknown>;
+    getSessionStats: (payload: unknown) => Promise<{ success?: boolean; stats?: unknown; error?: string }>;
+    getWsStatus: () => Promise<{ success?: boolean; status?: unknown; error?: string }>;
+    listSessions: () => Promise<unknown[]>;
+  };
+  env: {
+    check: () => Promise<{
+      python: { available: boolean; cmd: string | null };
+      java: { available: boolean; version: number | null };
+      packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean };
+    }>;
+    install: () => Promise<{ success: boolean; message: string }>;
+    onInstallProgress: (callback: (event: { message: string }) => void) => () => void;
+  };
+  readRuntimeLog: () => Promise<string>;
+  getLogPath: () => Promise<string>;
 }

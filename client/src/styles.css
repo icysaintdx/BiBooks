@@ -3716,6 +3716,26 @@ button {
   font-weight: 900;
 }
 
+.expand-select-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--yb-primary);
+  cursor: pointer;
+}
+
+.expand-select-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.content-outline-text.expand-outline-text {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
 .stage-grid,
 .category-grid {
   display: grid;
