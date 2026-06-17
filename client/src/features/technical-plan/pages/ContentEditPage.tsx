@@ -6,7 +6,7 @@ import type { Components } from 'react-markdown';
 import { DetailHelpLink, MarkdownEditor, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { ClientConfig, ImageModelStatus, OutlineData, OutlineItem } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
-import type { BackgroundTaskState, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement } from '../types';
+import type { BackgroundTaskState, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement, SourceAnnotation } from '../types';
 
 interface ContentEditPageProps {
   outlineData: OutlineData | null;
@@ -48,6 +48,29 @@ const imageModelStatusLabels: Record<ImageModelStatus, string> = {
   untested: '未测试',
   available: '可用',
   unavailable: '不可用',
+};
+
+const sourceTypeLabels: Record<string, string> = {
+  tender_file: '招标文件',
+  database: '项目数据库',
+  case_history: '历史案例',
+  knowledge_base: '知识库',
+  private_kb: '私有知识库',
+  web: '互联网',
+  manual: '人工输入',
+  ai_generated: 'AI 生成',
+};
+
+const approvalStatusLabels: Record<string, string> = {
+  pending: '待人工确认',
+  approved: '已确认',
+  rejected: '已拒绝',
+};
+
+const riskLevelLabels: Record<string, string> = {
+  low: '低风险',
+  medium: '需复核',
+  high: '高风险',
 };
 
 const tableRequirementOptions: Array<{ value: ContentTableRequirement; label: string; description: string }> = [
@@ -337,6 +360,8 @@ function ContentEditPage({
   const [pendingMinimumWordsChoice, setPendingMinimumWordsChoice] = useState<PendingMinimumWordsChoice | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
   const [pausePending, setPausePending] = useState(false);
+  const [sourceAnnotations, setSourceAnnotations] = useState<SourceAnnotation[]>([]);
+  const [sourceAnnotationsLoading, setSourceAnnotationsLoading] = useState(false);
   const firstLeafId = leaves[0]?.id || '';
   const selectedItem = outlineData?.outline && selectedItemId ? findItem(outlineData.outline, selectedItemId) : null;
   const selectedIsLeaf = Boolean(selectedItem && !selectedItem.children?.length);
@@ -500,6 +525,31 @@ function ContentEditPage({
     setIsPreviewing(false);
     setDraftContent('');
   }, [editingItemId, selectedItem]);
+
+  const loadSourceAnnotations = useCallback(async (nodeId: string) => {
+    if (!window.yibiao?.technicalPlan.listSourceAnnotations) return;
+    setSourceAnnotationsLoading(true);
+    try {
+      const annotations = await window.yibiao.technicalPlan.listSourceAnnotations({
+        projectScope: 'technical_plan',
+        targetType: 'content_section',
+        targetId: nodeId,
+      });
+      setSourceAnnotations(annotations || []);
+    } catch (error) {
+      console.warn('读取来源标注失败', error);
+    } finally {
+      setSourceAnnotationsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedItem || !selectedIsLeaf) {
+      setSourceAnnotations([]);
+      return;
+    }
+    void loadSourceAnnotations(selectedItem.id);
+  }, [loadSourceAnnotations, selectedIsLeaf, selectedItem]);
 
   const openGenerationDialog = async () => {
     if (!outlineData?.outline?.length) {
@@ -818,6 +868,21 @@ function ContentEditPage({
     }
   };
 
+  const updateSourceAnnotationApproval = async (annotationId: string, action: 'approve' | 'reject') => {
+    if (!selectedItem || !window.yibiao?.technicalPlan) return;
+    try {
+      if (action === 'approve') {
+        await window.yibiao.technicalPlan.approveSourceAnnotation(annotationId, 'local-user');
+      } else {
+        await window.yibiao.technicalPlan.rejectSourceAnnotation(annotationId, 'local-user');
+      }
+      await loadSourceAnnotations(selectedItem.id);
+      showToast(action === 'approve' ? '来源已确认' : '来源已拒绝', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '更新来源审批状态失败', 'error');
+    }
+  };
+
   const renderTree = (items: OutlineItem[], level = 0): ReactNode => items.map((item) => {
     const meta = outlineMeta.get(item.id);
     const status = meta?.status || 'idle';
@@ -1010,6 +1075,42 @@ function ContentEditPage({
               <strong>当前是目录分组</strong>
               <p>该目录下包含 {selectedItem?.children ? collectLeafItems(selectedItem.children).length : 0} 个小节，请选择叶子小节查看具体正文。</p>
             </div>
+          )}
+
+          {selectedItem && selectedIsLeaf && (
+            <section className="source-annotations-panel" aria-label="内部来源标注">
+              <div className="source-annotations-head">
+                <div>
+                  <span className="section-kicker">内部标注</span>
+                  <strong>来源与审批</strong>
+                </div>
+                <span>{sourceAnnotationsLoading ? '读取中' : `${sourceAnnotations.length} 条`}</span>
+              </div>
+              {sourceAnnotations.length ? (
+                <div className="source-annotations-list">
+                  {sourceAnnotations.map((annotation) => (
+                    <article className={`source-annotation-card is-${annotation.approvalStatus} risk-${annotation.riskLevel}`} key={annotation.annotationId}>
+                      <div className="source-annotation-card-head">
+                        <strong>{sourceTypeLabels[annotation.sourceType] || annotation.sourceType}</strong>
+                        <span>{approvalStatusLabels[annotation.approvalStatus] || annotation.approvalStatus}</span>
+                      </div>
+                      <p>{annotation.claim || '已记录本章节来源关系。'}</p>
+                      <small>{riskLevelLabels[annotation.riskLevel] || annotation.riskLevel}{annotation.sourceTitle ? ` · ${annotation.sourceTitle}` : ''}</small>
+                      {annotation.sourceRef && <code>{annotation.sourceRef}</code>}
+                      {annotation.excerpt && <blockquote>{annotation.excerpt}</blockquote>}
+                      {annotation.requiresApproval && annotation.approvalStatus === 'pending' && (
+                        <div className="source-annotation-actions">
+                          <button type="button" className="primary-action" onClick={() => void updateSourceAnnotationApproval(annotation.annotationId, 'approve')}>确认可用</button>
+                          <button type="button" className="secondary-action" onClick={() => void updateSourceAnnotationApproval(annotation.annotationId, 'reject')}>拒绝使用</button>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="source-annotations-empty">本章节尚未记录来源。重新生成正文后会自动写入招标文件、全局事实和知识库引用摘要。</p>
+              )}
+            </section>
           )}
         </article>
       </section>

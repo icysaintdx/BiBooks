@@ -3,6 +3,7 @@ import type { Components } from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import type { ReactNode } from 'react';
+import { normalizeMarkdownTables } from '../utils/markdownTables';
 
 interface MarkdownRendererProps {
   children: string;
@@ -70,7 +71,7 @@ function MarkdownRenderer({ children, components, allowRawHtml = true, enableGfm
       urlTransform={markdownUrlTransform}
       components={mergeMarkdownComponents(components)}
     >
-      {children}
+      {normalizeMarkdownTables(children)}
     </ReactMarkdown>
   );
 }

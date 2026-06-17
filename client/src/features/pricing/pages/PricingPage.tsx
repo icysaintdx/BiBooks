@@ -1,5 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../shared/ui';
+import type { RepairTaskInput } from '../../../shared/types/ipc';
+import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
 
 interface PricingItem {
   id: string;
@@ -15,12 +17,28 @@ interface PricingItem {
 
 interface PricingSheet {
   id: string;
+  bidProjectId?: string;
   projectName: string;
   taxRate: number;
   discountRate: number;
   items: PricingItem[];
   notes: string;
 }
+
+interface PricingSheetRecord extends PricingSheet {
+  createdAt?: string;
+  updatedAt?: string;
+  summary?: {
+    subtotalBeforeTax?: number;
+    discountAmount?: number;
+    afterDiscount?: number;
+    taxAmount?: number;
+    totalAmount?: number;
+    totalAmountChinese?: string;
+  };
+}
+
+const CATEGORIES = ['设备费', '人工费', '材料费', '管理费', '利润', '税金', '其他'];
 
 function createId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -34,39 +52,245 @@ function formatMoney(amount: number) {
   return amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const CATEGORIES = ['设备费', '人工费', '材料费', '管理费', '利润', '税金', '其他'];
+function formatPricingError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/No handler registered for 'pricing:list'|pricing:list/i.test(message)) {
+    return '报价模块没有连接到主进程。请完全退出并重新启动 BiBooks；如果仍然出现，说明当前运行的桌面端不是最新构建。';
+  }
+  if (/工作区数据库初始化失败/.test(message)) {
+    return message;
+  }
+  return `加载报价单失败：${message}`;
+}
 
-function PricingPage() {
-  const { showToast } = useToast();
-  const [sheet, setSheet] = useState<PricingSheet>({
+function emptySheet(projectName = ''): PricingSheet {
+  return {
     id: createId(),
-    projectName: '',
+    projectName,
     taxRate: 0.13,
     discountRate: 0,
     items: [],
     notes: '',
-  });
+  };
+}
+
+function normalizeRecord(record: Partial<PricingSheetRecord>): PricingSheetRecord {
+  return {
+    id: record.id || createId(),
+    bidProjectId: record.bidProjectId || '',
+    projectName: record.projectName || '',
+    taxRate: Number(record.taxRate ?? 0.13),
+    discountRate: Number(record.discountRate ?? 0),
+    items: Array.isArray(record.items) ? record.items.map((item) => ({
+      id: item.id || createId(),
+      category: item.category || CATEGORIES[0],
+      name: item.name || '',
+      specification: item.specification || '',
+      unit: item.unit || '',
+      quantity: Number(item.quantity) || 0,
+      unitPrice: Number(item.unitPrice) || 0,
+      subtotal: Number(item.subtotal) || 0,
+      notes: item.notes || '',
+    })) : [],
+    notes: record.notes || '',
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    summary: record.summary,
+  };
+}
+
+function computeSummary(sheet: PricingSheet) {
+  const subtotalBeforeTax = roundMoney(sheet.items.reduce((sum, item) => sum + roundMoney(item.quantity * item.unitPrice), 0));
+  const discountAmount = roundMoney(subtotalBeforeTax * (sheet.discountRate || 0));
+  const afterDiscount = roundMoney(subtotalBeforeTax - discountAmount);
+  const taxAmount = roundMoney(afterDiscount * (sheet.taxRate || 0));
+  const totalAmount = roundMoney(afterDiscount + taxAmount);
+  return { subtotalBeforeTax, discountAmount, afterDiscount, taxAmount, totalAmount };
+}
+
+function buildPricingRepairTasks(sheet: PricingSheet): RepairTaskInput[] {
+  const tasks: RepairTaskInput[] = [];
+  if (!sheet.projectName.trim()) {
+    tasks.push({
+      title: '报价单缺少项目名称',
+      sourceModule: 'pricing',
+      sourceRecordId: sheet.id,
+      targetType: 'pricing_sheet',
+      targetId: sheet.id,
+      severity: 'major',
+      description: '当前报价单没有项目名称，最终合成和商务标引用时无法稳定匹配项目。',
+      suggestion: '在报价管理页补齐项目名称，优先从当前投标项目自动带入。',
+      patch: {
+        source: 'pricing',
+        field: 'projectName',
+        original: sheet.projectName,
+        suggested: '从当前项目带入或人工填写项目名称',
+        reason: 'missing_project_name',
+        references: [{ type: 'database', label: '报价单', value: sheet.id }],
+      },
+    });
+  }
+  if (sheet.items.length === 0) {
+    tasks.push({
+      title: '报价单没有明细项',
+      sourceModule: 'pricing',
+      sourceRecordId: sheet.id,
+      targetType: 'pricing_sheet',
+      targetId: sheet.id,
+      severity: 'critical',
+      description: '报价单没有任何明细项，商务标或最终导出无法形成有效报价表。',
+      suggestion: '至少补充一个报价明细项，并由本地脚本重新计算税费、优惠和合计。',
+      patch: {
+        source: 'pricing',
+        field: 'items',
+        original: '[]',
+        suggested: '补充报价明细项并由本地脚本重新计算',
+        reason: 'empty_items',
+        references: [{ type: 'database', label: '报价单', value: sheet.id }],
+      },
+    });
+  }
+  for (const item of sheet.items) {
+    if (!item.name.trim() || item.quantity <= 0 || item.unitPrice < 0) {
+      tasks.push({
+        title: `报价明细需要复核：${item.name || '未命名明细'}`,
+        sourceModule: 'pricing',
+        sourceRecordId: sheet.id,
+        targetType: 'pricing_sheet',
+        targetId: sheet.id,
+        severity: item.quantity <= 0 ? 'major' : 'warning',
+        description: '明细名称、数量或单价存在缺失/异常，不能交给 AI 猜测或自动补价。',
+        suggestion: '回到报价页由人工确认真实数量、单价和规格。',
+        patch: {
+          source: 'pricing',
+          field: `items.${item.id}`,
+          original: JSON.stringify({ name: item.name, quantity: item.quantity, unitPrice: item.unitPrice }),
+          suggested: '人工确认名称、数量、单价后由本地脚本重新计算',
+          reason: 'invalid_price_item',
+          references: [{ type: 'database', label: '报价明细', value: item.id }],
+        },
+        metadata: { itemId: item.id },
+      });
+    }
+  }
+  return tasks;
+}
+
+function PricingPage() {
+  const { showToast } = useToast();
+  const [sheets, setSheets] = useState<PricingSheetRecord[]>([]);
+  const [currentId, setCurrentId] = useState('');
+  const [currentProjectName, setCurrentProjectName] = useState('');
+  const [sheet, setSheet] = useState<PricingSheet>(emptySheet());
   const [editingItem, setEditingItem] = useState<PricingItem | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const summary = useMemo(() => {
-    const subtotal = sheet.items.reduce((sum, item) => sum + item.subtotal, 0);
-    const discount = roundMoney(subtotal * sheet.discountRate);
-    const afterDiscount = subtotal - discount;
-    const tax = roundMoney(afterDiscount * sheet.taxRate);
-    const total = roundMoney(afterDiscount + tax);
-    return { subtotal: roundMoney(subtotal), discount, afterDiscount, tax, total };
-  }, [sheet]);
-
+  const summary = useMemo(() => computeSummary(sheet), [sheet]);
   const categoryGroups = useMemo(() => {
     const groups: Record<string, PricingItem[]> = {};
     for (const item of sheet.items) {
-      const cat = item.category || '未分类';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(item);
+      const category = item.category || '未分类';
+      if (!groups[category]) groups[category] = [];
+      groups[category].push(item);
     }
     return groups;
   }, [sheet.items]);
+
+  const loadSheets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [records, projectState] = await Promise.all([
+        window.yibiao?.pricing?.list(),
+        window.yibiao?.projectWorkspace?.list(),
+      ]);
+      const currentProject = (projectState?.projects || []).find((project) => project.id === projectState?.currentProjectId);
+      const fallbackName = currentProject?.name || '';
+      setCurrentProjectName(fallbackName);
+
+      const normalized = Array.isArray(records) ? records.map((record) => normalizeRecord(record as Partial<PricingSheetRecord>)) : [];
+      setSheets(normalized);
+      const first = normalized[0] || emptySheet(fallbackName);
+      setCurrentId(first.id);
+      setSheet({
+        id: first.id,
+        bidProjectId: first.bidProjectId || '',
+        projectName: first.projectName || fallbackName,
+        taxRate: first.taxRate,
+        discountRate: first.discountRate,
+        items: first.items,
+        notes: first.notes,
+      });
+    } catch (error) {
+      console.error(error);
+      showToast(formatPricingError(error), 'error');
+      setSheet((prev) => prev.id ? prev : emptySheet());
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    void loadSheets();
+  }, [loadSheets]);
+
+  const handleSelectSheet = useCallback((id: string) => {
+    const record = sheets.find((item) => item.id === id);
+    if (!record) return;
+    setCurrentId(record.id);
+    setSheet({
+      id: record.id,
+      bidProjectId: record.bidProjectId || '',
+      projectName: record.projectName,
+      taxRate: record.taxRate,
+      discountRate: record.discountRate,
+      items: record.items,
+      notes: record.notes,
+    });
+  }, [sheets]);
+
+  const handleNewSheet = useCallback(() => {
+    const fresh = emptySheet(currentProjectName);
+    setCurrentId(fresh.id);
+    setSheet(fresh);
+    setEditingItem(null);
+    setShowAddDialog(false);
+  }, [currentProjectName]);
+
+  const handleSaveSheet = useCallback(async () => {
+    try {
+      const result = await window.yibiao?.pricing?.save(sheet);
+      if (result) {
+        const repairTasks = buildPricingRepairTasks(sheet);
+        if (repairTasks.length > 0 && window.yibiao?.repairTasks?.save) {
+          await Promise.all(repairTasks.map((task) => window.yibiao?.repairTasks?.save(task)));
+          notifyRepairTasksChanged();
+        } else {
+          await markRepairTasksForReview({
+            sourceModule: 'pricing',
+            targetType: 'pricing_sheet',
+            targetId: sheet.id,
+            decision: '报价单已保存，等待交付检查复核',
+          });
+        }
+        showToast('报价单已保存', 'success');
+        await loadSheets();
+      }
+    } catch (error) {
+      showToast(`保存报价单失败: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }, [loadSheets, sheet, showToast]);
+
+  const handleDeleteSheet = useCallback(async () => {
+    if (!currentId || !window.confirm('确认删除当前报价单？')) return;
+    try {
+      await window.yibiao?.pricing?.delete(currentId);
+      showToast('报价单已删除', 'success');
+      await loadSheets();
+    } catch (error) {
+      showToast(`删除报价单失败: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }, [currentId, loadSheets, showToast]);
 
   const handleAddItem = useCallback((item: Omit<PricingItem, 'id' | 'subtotal'>) => {
     const subtotal = roundMoney(item.quantity * item.unitPrice);
@@ -91,164 +315,141 @@ function PricingPage() {
   }, []);
 
   const handleRemoveItem = useCallback((id: string) => {
-    setSheet((prev) => ({
-      ...prev,
-      items: prev.items.filter((item) => item.id !== id),
-    }));
+    setSheet((prev) => ({ ...prev, items: prev.items.filter((item) => item.id !== id) }));
   }, []);
 
-  const handleExportMarkdown = useCallback(() => {
-    const lines: string[] = [];
-    lines.push('## 报价明细表');
-    lines.push('');
-    if (sheet.projectName) lines.push(`**项目名称**: ${sheet.projectName}`);
-    lines.push('');
-
-    for (const [category, items] of Object.entries(categoryGroups)) {
-      lines.push(`### ${category}`);
-      lines.push('');
-      lines.push('| 序号 | 名称 | 规格型号 | 单位 | 数量 | 单价（元） | 小计（元） |');
-      lines.push('|------|------|----------|------|------|------------|------------|');
-      items.forEach((item, idx) => {
-        lines.push(`| ${idx + 1} | ${item.name} | ${item.specification || '-'} | ${item.unit || '-'} | ${item.quantity} | ${formatMoney(item.unitPrice)} | ${formatMoney(item.subtotal)} |`);
-      });
-      const catSubtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-      lines.push(`| | | | | | **小计** | **${formatMoney(catSubtotal)}** |`);
-      lines.push('');
+  const handleExportMarkdown = useCallback(async () => {
+    try {
+      const md = await window.yibiao?.pricing?.exportMarkdown(sheet);
+      await navigator.clipboard.writeText(md || '');
+      showToast('报价表 Markdown 已复制到剪贴板。注意：这是中间层，不是最终递交文件。', 'success');
+    } catch (error) {
+      showToast(`导出 Markdown 失败: ${error instanceof Error ? error.message : String(error)}`, 'error');
     }
-
-    lines.push('### 汇总');
-    lines.push('');
-    lines.push(`- 含税合计: **${formatMoney(summary.total)}** 元`);
-    lines.push(`- 税率: ${(sheet.taxRate * 100).toFixed(0)}%`);
-    if (sheet.discountRate > 0) lines.push(`- 优惠率: ${(sheet.discountRate * 100).toFixed(1)}%`);
-    lines.push('');
-
-    const md = lines.join('\n');
-    navigator.clipboard.writeText(md).then(() => {
-      showToast('报价表已复制到剪贴板', 'success');
-    }).catch(() => {
-      showToast('复制失败', 'error');
-    });
-  }, [sheet, categoryGroups, summary, showToast]);
+  }, [sheet, showToast]);
 
   return (
-    <div style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
-      <h2 style={{ marginBottom: 16 }}>报价管理</h2>
-
-      {/* 基本信息 */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
-          <span style={{ fontSize: 13, color: '#666' }}>项目名称</span>
-          <input
-            value={sheet.projectName}
-            onChange={(e) => setSheet((prev) => ({ ...prev, projectName: e.target.value }))}
-            placeholder="输入项目名称"
-            style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 120 }}>
-          <span style={{ fontSize: 13, color: '#666' }}>税率</span>
-          <select
-            value={sheet.taxRate}
-            onChange={(e) => setSheet((prev) => ({ ...prev, taxRate: Number(e.target.value) }))}
-            style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }}
-          >
-            <option value={0}>免税</option>
-            <option value={0.03}>3%</option>
-            <option value={0.06}>6%</option>
-            <option value={0.09}>9%</option>
-            <option value={0.13}>13%</option>
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 120 }}>
-          <span style={{ fontSize: 13, color: '#666' }}>优惠率</span>
-          <input
-            type="number"
-            value={sheet.discountRate * 100}
-            onChange={(e) => setSheet((prev) => ({ ...prev, discountRate: Number(e.target.value) / 100 }))}
-            min={0}
-            max={100}
-            step={1}
-            style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }}
-          />
-        </label>
-      </div>
-
-      {/* 操作按钮 */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <button
-          onClick={() => setShowAddDialog(true)}
-          style={{ padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
-        >
-          添加报价项
-        </button>
-        <button
-          onClick={handleExportMarkdown}
-          disabled={sheet.items.length === 0}
-          style={{ padding: '8px 16px', background: '#52c41a', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', opacity: sheet.items.length === 0 ? 0.5 : 1 }}
-        >
-          导出 Markdown
-        </button>
-      </div>
-
-      {/* 报价项列表 */}
-      {sheet.items.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#999', background: '#fafafa', borderRadius: 8 }}>
-          暂无报价项，点击"添加报价项"开始
+    <div className="module-page module-page-wide pricing-page">
+      <header className="module-page-header">
+        <div>
+          <span className="section-kicker">PRICING</span>
+          <h2>报价管理</h2>
+          <p>报价只在本地计算和保存，不发送给 AI。最终导出时由本地脚本注入完整标书。</p>
         </div>
+        <div className="module-page-actions">
+          <button type="button" className="secondary-action module-action" onClick={handleNewSheet}>新建报价单</button>
+          <button type="button" className="primary-action module-action" onClick={handleSaveSheet}>保存报价单</button>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="module-empty-state">正在加载报价单...</div>
       ) : (
-        Object.entries(categoryGroups).map(([category, items]) => (
-          <div key={category} style={{ marginBottom: 24 }}>
-            <h3 style={{ marginBottom: 8, fontSize: 15 }}>{category}</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ background: '#f5f5f5' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid #eee' }}>名称</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', borderBottom: '1px solid #eee' }}>规格型号</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', borderBottom: '1px solid #eee' }}>单位</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #eee' }}>数量</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #eee' }}>单价</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #eee' }}>小计</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', borderBottom: '1px solid #eee' }}>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>{item.name}</td>
-                    <td style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', color: '#999' }}>{item.specification || '-'}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>{item.unit || '-'}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f0f0f0' }}>{item.quantity}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f0f0f0' }}>{formatMoney(item.unitPrice)}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f0f0f0', fontWeight: 600 }}>{formatMoney(item.subtotal)}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>
-                      <button onClick={() => setEditingItem(item)} style={{ color: '#1677ff', background: 'none', border: 'none', cursor: 'pointer', marginRight: 8 }}>编辑</button>
-                      <button onClick={() => handleRemoveItem(item.id)} style={{ color: '#ff4d4f', background: 'none', border: 'none', cursor: 'pointer' }}>删除</button>
-                    </td>
-                  </tr>
+        <>
+          {sheets.length > 0 && (
+            <label className="module-field module-selector">
+              <span>报价单</span>
+              <select value={currentId} onChange={(event) => handleSelectSheet(event.target.value)}>
+                {sheets.map((record) => (
+                  <option key={record.id} value={record.id}>{record.projectName || `未命名报价单 ${record.id.slice(-6)}`}</option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        ))
-      )}
-
-      {/* 汇总 */}
-      {sheet.items.length > 0 && (
-        <div style={{ background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8, padding: 16, marginTop: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span>含税合计</span>
-            <span style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{formatMoney(summary.total)} 元</span>
-          </div>
-          {summary.discount > 0 && (
-            <div style={{ fontSize: 13, color: '#999' }}>已优惠: {formatMoney(summary.discount)} 元</div>
+              </select>
+            </label>
           )}
-          <div style={{ fontSize: 13, color: '#999' }}>税额: {formatMoney(summary.tax)} 元</div>
-        </div>
+
+          <div className="pricing-layout">
+            <main className="module-panel pricing-main-panel">
+              <div className="pricing-form-grid">
+                <label className="module-field">
+                  <span>项目名称</span>
+                  <input
+                    value={sheet.projectName}
+                    onChange={(event) => setSheet((prev) => ({ ...prev, projectName: event.target.value }))}
+                    placeholder="输入或从当前项目带入"
+                  />
+                </label>
+                <label className="module-field">
+                  <span>税率</span>
+                  <select value={sheet.taxRate} onChange={(event) => setSheet((prev) => ({ ...prev, taxRate: Number(event.target.value) }))}>
+                    <option value={0}>免税</option>
+                    <option value={0.03}>3%</option>
+                    <option value={0.06}>6%</option>
+                    <option value={0.09}>9%</option>
+                    <option value={0.13}>13%</option>
+                  </select>
+                </label>
+                <label className="module-field">
+                  <span>优惠率</span>
+                  <input
+                    type="number"
+                    value={sheet.discountRate * 100}
+                    onChange={(event) => setSheet((prev) => ({ ...prev, discountRate: Number(event.target.value) / 100 }))}
+                    min={0}
+                    max={100}
+                    step={1}
+                  />
+                </label>
+              </div>
+
+              <div className="module-button-row">
+                <button type="button" className="primary-action module-action" onClick={() => setShowAddDialog(true)}>添加报价项</button>
+                <button type="button" className="secondary-action module-action" onClick={handleExportMarkdown} disabled={sheet.items.length === 0}>复制 Markdown 中间层</button>
+                <button type="button" className="danger-action module-action" onClick={handleDeleteSheet} disabled={!currentId}>删除报价单</button>
+              </div>
+
+              {sheet.items.length === 0 ? (
+                <div className="module-empty-state">暂无报价项。报价金额不能由 AI 猜测，需要人工录入或后续从 Excel 导入。</div>
+              ) : (
+                Object.entries(categoryGroups).map(([category, items]) => (
+                  <section className="pricing-category" key={category}>
+                    <h3>{category}</h3>
+                    <div className="module-table-wrap">
+                      <table className="module-data-table">
+                        <thead>
+                          <tr>
+                            {['名称', '规格型号', '单位', '数量', '单价', '小计', '操作'].map((title) => (
+                              <th key={title} className={title === '操作' ? 'is-center' : undefined}>{title}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((item) => (
+                            <tr key={item.id}>
+                              <td>{item.name}</td>
+                              <td>{item.specification || '-'}</td>
+                              <td>{item.unit || '-'}</td>
+                              <td className="is-number">{item.quantity}</td>
+                              <td className="is-number">{formatMoney(item.unitPrice)}</td>
+                              <td className="is-number is-strong">{formatMoney(roundMoney(item.quantity * item.unitPrice))}</td>
+                              <td className="is-center is-nowrap">
+                                <button type="button" className="module-link-button" onClick={() => setEditingItem(item)}>编辑</button>
+                                <button type="button" className="module-link-button is-danger" onClick={() => handleRemoveItem(item.id)}>删除</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                ))
+              )}
+            </main>
+
+            <aside className="module-panel pricing-summary-panel">
+              <h3>本地计算汇总</h3>
+              <SummaryRow label="税前小计" value={`${formatMoney(summary.subtotalBeforeTax)} 元`} />
+              <SummaryRow label="优惠金额" value={`${formatMoney(summary.discountAmount)} 元`} />
+              <SummaryRow label="税额" value={`${formatMoney(summary.taxAmount)} 元`} />
+              <div className="pricing-total">
+                <span>含税合计</span>
+                <strong>{formatMoney(summary.totalAmount)} 元</strong>
+              </div>
+              <p>用途：生成报价表、商务标引用、最终完整标书合成。边界：不传 AI，不进入提示词，只在本机数据库和导出阶段使用。</p>
+            </aside>
+          </div>
+        </>
       )}
 
-      {/* 添加/编辑对话框 */}
       {(showAddDialog || editingItem) && (
         <ItemDialog
           item={editingItem}
@@ -260,15 +461,16 @@ function PricingPage() {
   );
 }
 
-function ItemDialog({
-  item,
-  onSave,
-  onClose,
-}: {
-  item?: PricingItem | null;
-  onSave: (item: any) => void;
-  onClose: () => void;
-}) {
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="pricing-summary-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ItemDialog({ item, onSave, onClose }: { item?: PricingItem | null; onSave: (item: Omit<PricingItem, 'id' | 'subtotal'>) => void; onClose: () => void }) {
   const [form, setForm] = useState({
     category: item?.category || CATEGORIES[0],
     name: item?.name || '',
@@ -285,45 +487,43 @@ function ItemDialog({
   };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 480, maxHeight: '80vh', overflow: 'auto' }}>
-        <h3 style={{ marginBottom: 16 }}>{item ? '编辑报价项' : '添加报价项'}</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 13, color: '#666' }}>分类</span>
-            <select value={form.category} onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))} style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }}>
+    <div className="module-modal-backdrop">
+      <div className="module-modal" role="dialog" aria-modal="true" aria-label={item ? '编辑报价项' : '添加报价项'}>
+        <h3>{item ? '编辑报价项' : '添加报价项'}</h3>
+        <div className="module-dialog-form">
+          <label className="module-field">
+            <span>分类</span>
+            <select value={form.category} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}>
               {CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
             </select>
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 13, color: '#666' }}>名称 *</span>
-            <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="报价项名称" style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }} />
+          <label className="module-field">
+            <span>名称 *</span>
+            <input value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="报价项名称" />
           </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 13, color: '#666' }}>规格型号</span>
-            <input value={form.specification} onChange={(e) => setForm((prev) => ({ ...prev, specification: e.target.value }))} placeholder="规格型号" style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }} />
+          <label className="module-field">
+            <span>规格型号</span>
+            <input value={form.specification} onChange={(event) => setForm((prev) => ({ ...prev, specification: event.target.value }))} placeholder="规格型号" />
           </label>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>单位</span>
-              <input value={form.unit} onChange={(e) => setForm((prev) => ({ ...prev, unit: e.target.value }))} placeholder="个/台/套" style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }} />
+          <div className="pricing-dialog-grid">
+            <label className="module-field">
+              <span>单位</span>
+              <input value={form.unit} onChange={(event) => setForm((prev) => ({ ...prev, unit: event.target.value }))} placeholder="个/台/套" />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>数量</span>
-              <input type="number" value={form.quantity} onChange={(e) => setForm((prev) => ({ ...prev, quantity: Number(e.target.value) }))} min={0} step={1} style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }} />
+            <label className="module-field">
+              <span>数量</span>
+              <input type="number" value={form.quantity} onChange={(event) => setForm((prev) => ({ ...prev, quantity: Number(event.target.value) }))} min={0} step={1} />
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-              <span style={{ fontSize: 13, color: '#666' }}>单价（元）</span>
-              <input type="number" value={form.unitPrice} onChange={(e) => setForm((prev) => ({ ...prev, unitPrice: Number(e.target.value) }))} min={0} step={0.01} style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6 }} />
+            <label className="module-field">
+              <span>单价（元）</span>
+              <input type="number" value={form.unitPrice} onChange={(event) => setForm((prev) => ({ ...prev, unitPrice: Number(event.target.value) }))} min={0} step={0.01} />
             </label>
           </div>
-          <div style={{ fontSize: 14, color: '#1677ff' }}>
-            小计: {formatMoney(roundMoney(form.quantity * form.unitPrice))} 元
-          </div>
+          <div className="pricing-dialog-subtotal">小计：{formatMoney(roundMoney(form.quantity * form.unitPrice))} 元</div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 6, cursor: 'pointer' }}>取消</button>
-          <button onClick={handleSubmit} disabled={!form.name.trim()} style={{ padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', opacity: form.name.trim() ? 1 : 0.5 }}>保存</button>
+        <div className="module-modal-actions">
+          <button type="button" className="secondary-action module-action" onClick={onClose}>取消</button>
+          <button type="button" className="primary-action module-action" onClick={handleSubmit} disabled={!form.name.trim()}>保存</button>
         </div>
       </div>
     </div>

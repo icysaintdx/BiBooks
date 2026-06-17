@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useToast } from '../../../shared/ui';
-import type { VersionSummary, VersionComparison, VersionChangeItem } from '../../../shared/types';
+import type { VersionComparison, VersionSummary } from '../../../shared/types';
 
 interface VersionManagementPageProps {
   onRestore?: () => void;
 }
+
+const stepLabels: Record<string, string> = {
+  'document-analysis': '上传文件',
+  'bid-analysis': '招标解析',
+  'outline-generation': '目录生成',
+  'global-facts': '全局事实',
+  'content-edit': '正文生成',
+  expand: '扩写改写',
+  'delivery-check': '交付检查',
+  'export-archive': '导出归档',
+};
 
 function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
   const { showToast } = useToast();
@@ -31,7 +42,7 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
   };
 
   useEffect(() => {
-    loadVersions();
+    void loadVersions();
   }, []);
 
   const handleSave = async () => {
@@ -42,7 +53,7 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
       setShowSaveDialog(false);
       setSaveName('');
       setSaveDescription('');
-      loadVersions();
+      void loadVersions();
     } catch (error) {
       showToast(error instanceof Error ? error.message : '保存版本失败', 'error');
     } finally {
@@ -52,7 +63,6 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
 
   const handleRestore = async (id: string) => {
     if (!confirm('确定要恢复到此版本吗？当前未保存的更改将丢失。')) return;
-
     try {
       const result = await window.yibiao?.versions.restore(id);
       if (result) {
@@ -66,11 +76,10 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
 
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除此版本吗？')) return;
-
     try {
       await window.yibiao?.versions.delete(id);
       showToast('版本已删除', 'success');
-      loadVersions();
+      void loadVersions();
     } catch (error) {
       showToast(error instanceof Error ? error.message : '删除版本失败', 'error');
     }
@@ -81,7 +90,6 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
       showToast('请选择两个版本进行对比', 'info');
       return;
     }
-
     try {
       const result = await window.yibiao?.versions.compare({ versionId1: selectedIds[0], versionId2: selectedIds[1] });
       if (result) setComparison(result as VersionComparison);
@@ -92,7 +100,7 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
-      if (prev.includes(id)) return prev.filter((i) => i !== id);
+      if (prev.includes(id)) return prev.filter((item) => item !== id);
       if (prev.length >= 2) return [prev[1], id];
       return [...prev, id];
     });
@@ -106,22 +114,13 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
     }
   };
 
-  const stepLabels: Record<string, string> = {
-    'document-analysis': '上传文件',
-    'bid-analysis': '招标解析',
-    'outline-generation': '目录生成',
-    'global-facts': '全局事实',
-    'content-edit': '正文生成',
-    expand: '扩写改写',
-  };
-
   return (
     <div className="version-management-page">
       <div className="version-management-header">
         <div>
           <span className="section-kicker">版本管理</span>
-          <strong>技术方案版本快照</strong>
-          <p>保存当前工作进度，支持版本历史查看和恢复。</p>
+          <strong>项目内部变更审阅</strong>
+          <p>保存当前工作快照，对比版本时以红色删除、绿色新增的方式显示变化；这些标记只在软件内显示，不会进入导出的正式文档。</p>
         </div>
         <div className="version-management-actions">
           {compareMode && (
@@ -138,17 +137,16 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
         </div>
       </div>
 
-      {/* 保存对话框 */}
       {showSaveDialog && (
         <div className="version-save-dialog">
           <h4>保存版本快照</h4>
           <label>
             <span>版本名称</span>
-            <input value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder={`版本 ${new Date().toLocaleString('zh-CN')}`} />
+            <input value={saveName} onChange={(event) => setSaveName(event.target.value)} placeholder={`版本 ${new Date().toLocaleString('zh-CN')}`} />
           </label>
           <label>
             <span>版本说明（可选）</span>
-            <textarea value={saveDescription} onChange={(e) => setSaveDescription(e.target.value)} placeholder="记录本次修改的主要内容" rows={2} />
+            <textarea value={saveDescription} onChange={(event) => setSaveDescription(event.target.value)} placeholder="记录本次修改的主要内容、来源或修复原因" rows={2} />
           </label>
           <div className="version-save-dialog-actions">
             <button type="button" className="secondary-action" onClick={() => setShowSaveDialog(false)}>取消</button>
@@ -157,7 +155,6 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
         </div>
       )}
 
-      {/* 版本对比结果 */}
       {comparison && (
         <div className="version-comparison-result">
           <h4>版本对比结果</h4>
@@ -166,40 +163,47 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
             <span>→</span>
             <span>{comparison.version2.name}</span>
             <span className="version-comparison-stats">
-              共 {comparison.totalChanges} 处变更：
-              新增 {comparison.addedCount}，修改 {comparison.modifiedCount}，删除 {comparison.removedCount}
+              共 {comparison.totalChanges} 处变更：新增 {comparison.addedCount}，修改 {comparison.modifiedCount}，删除 {comparison.removedCount}
             </span>
           </div>
-          {comparison.outlineChanges.length > 0 && (
-            <div className="version-comparison-changes">
-              {comparison.outlineChanges.map((change, idx) => (
-                <div key={idx} className={`version-change-item is-${change.type}`}>
-                  <span className="version-change-type">
-                    {change.type === 'added' ? '新增' : change.type === 'removed' ? '删除' : '修改'}
-                  </span>
-                  <span className="version-change-id">{change.id}</span>
-                  <span className="version-change-title">{change.title}</span>
-                  {change.fields && (
-                    <span className="version-change-fields">
-                      {change.fields.map((f) => f.field).join('、')}
-                    </span>
-                  )}
+          {comparison.outlineChanges.length > 0 ? (
+            <div className="version-comparison-diff">
+              {comparison.outlineChanges.map((change, index) => (
+                <div key={`${change.id}-${index}`} className={`version-diff-item is-${change.type}`}>
+                  <div className="version-diff-head">
+                    <span className="version-diff-type">{change.type === 'added' ? '新增' : change.type === 'removed' ? '删除' : '修改'}</span>
+                    <strong>{change.id}</strong>
+                    <span>{change.title}</span>
+                  </div>
+                  {change.fields?.length ? (
+                    <div className="version-diff-fields">
+                      {change.fields.map((field) => (
+                        <div key={field.field} className="version-diff-field">
+                          <span>{field.field}</span>
+                          <small className="diff-old">{field.old ?? field.oldLength ?? '-'}</small>
+                          <em>→</em>
+                          <small className="diff-new">{field.new ?? field.newLength ?? '-'}</small>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
+          ) : (
+            <p className="version-no-diff">两个版本没有检测到目录或正文变化。</p>
           )}
           <button type="button" className="secondary-action" onClick={() => setComparison(null)}>关闭对比</button>
         </div>
       )}
 
-      {/* 版本列表 */}
       <div className="version-list">
         {loading ? (
           <div className="version-list-empty">加载中...</div>
         ) : versions.length === 0 ? (
           <div className="version-list-empty">
             <strong>暂无版本快照</strong>
-            <p>点击"保存当前版本"创建第一个版本快照。</p>
+            <p>点击“保存当前版本”创建第一个可审阅快照。</p>
           </div>
         ) : (
           versions.map((version) => (
@@ -225,8 +229,8 @@ function VersionManagementPage({ onRestore }: VersionManagementPageProps) {
               </div>
               {!compareMode && (
                 <div className="version-item-actions">
-                  <button type="button" className="secondary-action" onClick={() => handleRestore(version.id)}>恢复</button>
-                  <button type="button" className="danger-action" onClick={() => handleDelete(version.id)}>删除</button>
+                  <button type="button" className="secondary-action" onClick={() => void handleRestore(version.id)}>恢复</button>
+                  <button type="button" className="danger-action" onClick={() => void handleDelete(version.id)}>删除</button>
                 </div>
               )}
             </div>

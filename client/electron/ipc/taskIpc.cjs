@@ -1,6 +1,6 @@
 const { ipcMain } = require('electron');
 
-function registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService }) {
+function registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService, projectAnalysisStore }) {
   ipcMain.handle('tasks:start-bid-analysis', (event, payload) => {
     taskService.subscribe(event.sender);
     return taskService.startBidAnalysis(payload);
@@ -48,15 +48,39 @@ function registerTaskIpc({ taskService, competitiveAnalysisService, complianceCh
   // 竞品分析（同步调用，基于已有数据生成报告）
   if (competitiveAnalysisService) {
     ipcMain.handle('competitive-analysis:generate', (event, payload) => {
-      return competitiveAnalysisService.generateReport(payload);
+      const result = competitiveAnalysisService.generateReport(payload);
+      if (result?.success && result.report && projectAnalysisStore) {
+        projectAnalysisStore.save({
+          type: 'competitive',
+          title: payload?.projectInfo?.projectName || result.report.projectInfo?.projectName || '',
+          input: payload || {},
+          result: result.report,
+        });
+      }
+      return result;
     });
+    ipcMain.handle('competitive-analysis:list', () => projectAnalysisStore?.list('competitive') || []);
+    ipcMain.handle('competitive-analysis:get-latest', () => projectAnalysisStore?.getLatest('competitive') || null);
+    ipcMain.handle('competitive-analysis:delete', (_event, id) => projectAnalysisStore?.remove(id) || { success: false });
   }
 
   // 合规性检查（同步调用，基于已有数据生成报告）
   if (complianceCheckService) {
     ipcMain.handle('compliance-check:check', (event, payload) => {
-      return complianceCheckService.check(payload);
+      const result = complianceCheckService.check(payload);
+      if (result?.success && result.report && projectAnalysisStore) {
+        projectAnalysisStore.save({
+          type: 'compliance',
+          title: result.report.projectName || payload?.bidAnalysis?.projectInfo?.projectName || '',
+          input: payload || {},
+          result: result.report,
+        });
+      }
+      return result;
     });
+    ipcMain.handle('compliance-check:list', () => projectAnalysisStore?.list('compliance') || []);
+    ipcMain.handle('compliance-check:get-latest', () => projectAnalysisStore?.getLatest('compliance') || null);
+    ipcMain.handle('compliance-check:delete', (_event, id) => projectAnalysisStore?.remove(id) || { success: false });
     ipcMain.handle('compliance-check:get-rules', () => {
       return complianceCheckService.getRules();
     });

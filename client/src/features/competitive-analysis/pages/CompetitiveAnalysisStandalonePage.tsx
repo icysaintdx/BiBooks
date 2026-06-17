@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { CompetitiveAnalysisReport } from '../../../shared/types';
+import { useEffect, useState } from 'react';
+import type { CompetitiveAnalysisReport, ProjectAnalysisRecord } from '../../../shared/types';
 
 const INDUSTRY_OPTIONS = [
   { code: 'it_information', name: 'IT/信息化' },
@@ -19,7 +19,11 @@ const priorityColors = {
   info: { bg: 'rgba(59,130,246,0.1)', border: 'rgba(59,130,246,0.3)', text: '#3b82f6' },
 };
 
-const priorityLabels = { high: { label: '高', color: '#ef4444' }, medium: { label: '中', color: '#eab308' }, low: { label: '低', color: '#6b7280' } };
+const priorityLabels = {
+  high: { label: '高', color: '#ef4444' },
+  medium: { label: '中', color: '#eab308' },
+  low: { label: '低', color: '#6b7280' },
+};
 
 export default function CompetitiveAnalysisStandalonePage() {
   const [loading, setLoading] = useState(false);
@@ -30,11 +34,34 @@ export default function CompetitiveAnalysisStandalonePage() {
   const [projectName, setProjectName] = useState('');
   const [scoringText, setScoringText] = useState('');
 
+  useEffect(() => {
+    void window.yibiao?.projectWorkspace.list()
+      .then((state) => {
+        const currentProject = (state.projects || []).find((project) => project.id === state.currentProjectId);
+        if (currentProject?.name) setProjectName((value) => value || currentProject.name);
+      })
+      .catch(() => undefined);
+
+    void window.yibiao?.competitiveAnalysis.getLatest()
+      .then((record: ProjectAnalysisRecord<CompetitiveAnalysisReport> | null) => {
+        if (!record?.result) return;
+        const input = (record.input || {}) as {
+          industryCode?: string;
+          projectInfo?: { projectName?: string };
+          scoringAnalysis?: { rawText?: string };
+        };
+        setReport(record.result);
+        if (input.industryCode) setSelectedIndustry(input.industryCode);
+        if (input.projectInfo?.projectName) setProjectName(input.projectInfo.projectName);
+        if (input.scoringAnalysis?.rawText) setScoringText(input.scoringAnalysis.rawText);
+      })
+      .catch(() => undefined);
+  }, []);
+
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
     try {
-      // 构建最小化评分分析结构（从文本输入解析，或用空对象）
       const scoringAnalysis = scoringText.trim()
         ? { rawText: scoringText, items: [], totalScore: 100, analysisDate: new Date().toISOString() }
         : null;
@@ -58,126 +85,110 @@ export default function CompetitiveAnalysisStandalonePage() {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 960, margin: '0 auto' }}>
-      <h2 style={{ marginBottom: 8 }}>竞争分析</h2>
-      <p style={{ color: '#666', fontSize: 14, marginBottom: 24 }}>基于行业评分权重生成竞争策略与差异化建议</p>
+    <div className="module-page competitive-analysis-page">
+      <header className="module-page-header">
+        <div>
+          <span className="section-kicker">COMPETITION</span>
+          <h2>竞争分析</h2>
+          <p>基于行业评分权重、项目特点和评分细则，生成竞争策略与差异化建议。</p>
+        </div>
+      </header>
 
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={{ fontSize: 13, color: '#666' }}>行业</span>
-          <select
-            value={selectedIndustry}
-            onChange={(e) => setSelectedIndustry(e.target.value)}
-            style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13 }}
-          >
-            {INDUSTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 200 }}>
-          <span style={{ fontSize: 13, color: '#666' }}>项目名称（可选）</span>
-          <input
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            placeholder="输入项目名称"
-            style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13 }}
+      <section className="module-panel module-form-panel">
+        <div className="module-form-row">
+          <label className="module-field">
+            <span>行业</span>
+            <select value={selectedIndustry} onChange={(e) => setSelectedIndustry(e.target.value)}>
+              {INDUSTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.name}</option>)}
+            </select>
+          </label>
+          <label className="module-field" style={{ flex: 1 }}>
+            <span>项目名称（可选）</span>
+            <input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="输入项目名称" />
+          </label>
+          <button type="button" className="primary-action module-action" onClick={handleGenerate} disabled={loading}>
+            {loading ? '生成中...' : '生成竞争分析'}
+          </button>
+        </div>
+        <label className="module-field">
+          <span>评分项内容（可选，粘贴招标评分表文本）</span>
+          <textarea
+            value={scoringText}
+            onChange={(e) => setScoringText(e.target.value)}
+            rows={4}
+            placeholder="如有招标文件评分细则，粘贴于此以获得更精准的分析..."
           />
         </label>
-        <button
-          onClick={handleGenerate}
-          disabled={loading}
-          style={{ padding: '8px 20px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}
-        >
-          {loading ? '生成中...' : '生成竞争分析'}
-        </button>
-      </div>
+      </section>
 
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 20 }}>
-        <span style={{ fontSize: 13, color: '#666' }}>评分项内容（可选，粘贴招标评分表文本）</span>
-        <textarea
-          value={scoringText}
-          onChange={(e) => setScoringText(e.target.value)}
-          rows={4}
-          placeholder="如有招标文件评分细则，粘贴于此以获得更精准的分析..."
-          style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 6, fontSize: 13, resize: 'vertical' }}
-        />
-      </label>
-
-      {error && <div style={{ padding: 12, background: '#fff1f0', border: '1px solid #ffa39e', borderRadius: 6, color: '#cf1322', marginBottom: 16 }}>{error}</div>}
+      {error && <div className="module-error-banner">{error}</div>}
 
       {report && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* 核心推荐 */}
+        <div className="module-stack">
           {report.recommendations?.length > 0 && (
-            <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8 }}>
-              <strong style={{ display: 'block', marginBottom: 12 }}>核心推荐</strong>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <section className="module-panel">
+              <strong className="module-section-title">核心推荐</strong>
+              <div className="module-card-list">
                 {report.recommendations.map((rec, i) => {
                   const c = priorityColors[rec.type as keyof typeof priorityColors] || priorityColors.info;
                   return (
-                    <div key={i} style={{ padding: '10px 14px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: 6 }}>
-                      <div style={{ fontWeight: 600, color: c.text, marginBottom: 4, fontSize: 14 }}>{rec.title}</div>
-                      <div style={{ fontSize: 13, color: '#555' }}>{rec.content}</div>
-                    </div>
+                    <article className="module-soft-card" key={i} style={{ background: c.bg, borderColor: c.border }}>
+                      <strong style={{ color: c.text }}>{rec.title}</strong>
+                      <p>{rec.content}</p>
+                    </article>
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* 竞争策略 */}
           {report.competitiveStrategies?.length > 0 && (
-            <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8 }}>
-              <strong style={{ display: 'block', marginBottom: 12 }}>竞争策略详情</strong>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {report.competitiveStrategies.map((s, i) => {
-                  const pl = priorityLabels[s.priority as keyof typeof priorityLabels] || priorityLabels.low;
+            <section className="module-panel">
+              <strong className="module-section-title">竞争策略详情</strong>
+              <div className="module-card-list">
+                {report.competitiveStrategies.map((strategy, i) => {
+                  const priority = priorityLabels[strategy.priority as keyof typeof priorityLabels] || priorityLabels.low;
                   const isOpen = selectedCategory === i;
                   return (
-                    <div key={i} style={{ border: '1px solid #e8e8e8', borderRadius: 6, overflow: 'hidden' }}>
-                      <button
-                        onClick={() => setSelectedCategory(isOpen ? null : i)}
-                        style={{ width: '100%', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', background: '#fafafa', border: 'none', cursor: 'pointer', fontSize: 13 }}
-                      >
-                        <span style={{ fontWeight: 600 }}>{s.category}</span>
-                        <span style={{ color: pl.color, fontSize: 12 }}>优先级：{pl.label} {isOpen ? '▲' : '▼'}</span>
+                    <article className="module-accordion" key={i}>
+                      <button type="button" className="module-accordion-trigger" onClick={() => setSelectedCategory(isOpen ? null : i)}>
+                        <strong>{strategy.category}</strong>
+                        <span style={{ color: priority.color }}>优先级：{priority.label} {isOpen ? '▲' : '▼'}</span>
                       </button>
                       {isOpen && (
-                        <div style={{ padding: '10px 14px', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {s.focusAreas?.length > 0 && <div><strong>关注领域：</strong>{s.focusAreas.join('、')}</div>}
-                          {s.differentiators?.length > 0 && <div><strong>差异化：</strong>{s.differentiators.join('、')}</div>}
-                          {s.risks?.length > 0 && <div><strong>风险：</strong><span style={{ color: '#ef4444' }}>{s.risks.join('、')}</span></div>}
+                        <div className="module-accordion-content">
+                          {strategy.focusAreas?.length > 0 && <div><strong>关注领域：</strong>{strategy.focusAreas.join('、')}</div>}
+                          {strategy.differentiators?.length > 0 && <div><strong>差异化：</strong>{strategy.differentiators.join('、')}</div>}
+                          {strategy.risks?.length > 0 && <div><strong>风险：</strong><span style={{ color: '#ef4444' }}>{strategy.risks.join('、')}</span></div>}
                         </div>
                       )}
-                    </div>
+                    </article>
                   );
                 })}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* 行业洞察 */}
           {report.industryInsights && (
-            <div style={{ padding: 16, border: '1px solid #e8e8e8', borderRadius: 8 }}>
-              <strong style={{ display: 'block', marginBottom: 12 }}>行业洞察</strong>
+            <section className="module-panel">
+              <strong className="module-section-title">行业洞察</strong>
               {report.industryInsights.keyMetrics?.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>关键指标</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {report.industryInsights.keyMetrics.map((m, i) => (
-                      <span key={i} style={{ padding: '3px 10px', background: '#e6f4ff', border: '1px solid #91caff', borderRadius: 12, fontSize: 12, color: '#1677ff' }}>{m}</span>
-                    ))}
+                <div>
+                  <div className="module-field"><span>关键指标</span></div>
+                  <div className="module-tag-list">
+                    {report.industryInsights.keyMetrics.map((metric, i) => <span className="module-tag" key={i}>{metric}</span>)}
                   </div>
                 </div>
               )}
               {report.industryInsights.commonPitfalls?.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>常见误区</div>
-                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#555' }}>
-                    {report.industryInsights.commonPitfalls.map((p, i) => <li key={i}>{p}</li>)}
+                  <div className="module-field" style={{ marginTop: 12 }}><span>常见误区</span></div>
+                  <ul className="quiet-list" style={{ marginTop: 8 }}>
+                    {report.industryInsights.commonPitfalls.map((pitfall, i) => <li key={i}>{pitfall}</li>)}
                   </ul>
                 </div>
               )}
-            </div>
+            </section>
           )}
         </div>
       )}

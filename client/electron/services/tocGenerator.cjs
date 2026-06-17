@@ -6,9 +6,48 @@
 
 const {
   AlignmentType,
+  LeaderType,
   Paragraph,
+  TabStopPosition,
+  TabStopType,
   TextRun,
 } = require('docx');
+
+const CHINESE_NUMERALS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+const OUTLINE_NUMBER_PREFIX_PATTERN = /^(?:第[一二三四五六七八九十百千万\d]+[章节][、\s]*|[一二三四五六七八九十百千万]+[、.]\s*|[（(][一二三四五六七八九十百千万\d]+[）)]\s*|\d+(?:\.\d+)*[、.)）]?\s*)/;
+
+function chineseNumber(value) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) return String(value || '');
+  if (number <= 10) return CHINESE_NUMERALS[number];
+  if (number < 20) return `十${CHINESE_NUMERALS[number - 10]}`;
+  const tens = Math.floor(number / 10);
+  const ones = number % 10;
+  return `${CHINESE_NUMERALS[tens]}十${ones ? CHINESE_NUMERALS[ones] : ''}`;
+}
+
+function standardOutlineLabel(level = 1, siblingIndex = 0) {
+  const index = siblingIndex + 1;
+  if (level <= 1) return `${chineseNumber(index)}、`;
+  if (level === 2) return `（${chineseNumber(index)}）`;
+  if (level === 3) return `${index}.`;
+  return `（${index}）`;
+}
+
+function stripOutlineNumberPrefix(text) {
+  return String(text || '').trim().replace(OUTLINE_NUMBER_PREFIX_PATTERN, '').trim();
+}
+
+function outlineTitleText(item = {}, level = 1, siblingIndex = 0) {
+  const rawTitle = String(item.title || '').trim();
+  const rawId = String(item.id || '').trim();
+  const titleWithoutId = rawId && rawTitle.startsWith(rawId)
+    ? rawTitle.slice(rawId.length).replace(/^[\s.、)）-]+/, '').trim()
+    : rawTitle;
+  const title = stripOutlineNumberPrefix(titleWithoutId || rawId);
+  const label = standardOutlineLabel(level, siblingIndex);
+  return `${label}${title ? ` ${title}` : ''}`.trim();
+}
 
 /**
  * 格式标准配置
@@ -95,42 +134,22 @@ function createTocFieldParagraph() {
  * @param {number} maxLevel - 最大层级
  * @returns {Array} 段落数组
  */
-function generateStaticTocContent(outline = [], maxLevel = 3) {
-  const paragraphs = [];
+function normalizeLeader(value) {
+  if (value === 'hyphen') return LeaderType.HYPHEN;
+  if (value === 'underscore') return LeaderType.UNDERSCORE;
+  if (value === 'middleDot') return LeaderType.MIDDLE_DOT;
+  if (value === 'none') return LeaderType.NONE;
+  return LeaderType.DOT;
+}
+
+function collectStaticTocRows(outline = [], maxLevel = 3) {
+  const rows = [];
 
   function processItems(items, level = 1) {
     if (level > maxLevel) return;
-
-    for (const item of items) {
-      const indent = (level - 1) * 360; // 每级缩进 0.5 英寸
-      const fontSize = level === 1 ? 24 : level === 2 ? 21 : 18; // 递减字号
-      const isBold = level === 1;
-
-      paragraphs.push(
-        new Paragraph({
-          spacing: {
-            before: 60,
-            after: 60,
-            line: 276,
-          },
-          indent: {
-            left: indent,
-          },
-          children: [
-            new TextRun({
-              text: item.title || '未命名章节',
-              font: {
-                name: level === 1 ? '黑体' : '宋体',
-                eastAsia: level === 1 ? '黑体' : '宋体',
-              },
-              size: fontSize,
-              bold: isBold,
-            }),
-          ],
-        })
-      );
-
-      // 递归处理子项
+    for (const [index, item] of items.entries()) {
+      const title = outlineTitleText(item, level, index);
+      if (title) rows.push({ title, level });
       if (item.children && item.children.length > 0) {
         processItems(item.children, level + 1);
       }
@@ -138,6 +157,57 @@ function generateStaticTocContent(outline = [], maxLevel = 3) {
   }
 
   processItems(outline);
+  return rows;
+}
+
+function generateStaticTocContent(outline = [], maxLevel = 3, options = {}) {
+  const paragraphs = [];
+  const rows = collectStaticTocRows(outline, maxLevel);
+  const leader = normalizeLeader(options.leader);
+  const showPageNumber = options.showPageNumber !== false;
+
+  for (const [rowIndex, row] of rows.entries()) {
+    const indent = (row.level - 1) * 360;
+    const fontSize = row.level === 1 ? 24 : row.level === 2 ? 21 : 18;
+    const isBold = row.level === 1;
+    const children = [
+      new TextRun({
+        text: row.title,
+        font: {
+          name: row.level === 1 ? '黑体' : '宋体',
+          eastAsia: row.level === 1 ? '黑体' : '宋体',
+        },
+        size: fontSize,
+        bold: isBold,
+      }),
+    ];
+    if (showPageNumber) {
+      children.push(new TextRun({ text: '\t' }));
+      children.push(new TextRun({
+        text: String(rowIndex + 1),
+        font: { name: '宋体', eastAsia: '宋体' },
+        size: fontSize,
+      }));
+    }
+
+    paragraphs.push(
+      new Paragraph({
+        spacing: {
+          before: 60,
+          after: 60,
+          line: 276,
+        },
+        indent: {
+          left: indent,
+        },
+        tabStops: showPageNumber
+          ? [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader }]
+          : undefined,
+        children,
+      })
+    );
+  }
+
   return paragraphs;
 }
 
@@ -156,6 +226,9 @@ function generateTocParagraphs(options = {}) {
     formatStandard = 'government',
     autoToc = true,
     staticToc = true,
+    leader = 'dot',
+    maxLevel = 3,
+    showPageNumber = true,
   } = options;
 
   const paragraphs = [];
@@ -170,7 +243,7 @@ function generateTocParagraphs(options = {}) {
 
   // 静态目录
   if (staticToc && outline.length > 0) {
-    paragraphs.push(...generateStaticTocContent(outline));
+    paragraphs.push(...generateStaticTocContent(outline, maxLevel, { leader, showPageNumber }));
   }
 
   return paragraphs;

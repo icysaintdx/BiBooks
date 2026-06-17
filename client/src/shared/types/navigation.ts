@@ -1,4 +1,5 @@
 export type SectionId =
+  | 'project-management'
   | 'technical-plan'
   | 'business-bid'
   | 'pricing'

@@ -3,6 +3,8 @@
  * 解析技术评分要求为结构化数据，计算权重分布，生成内容编写建议
  */
 
+const { buildEvidenceBoundaryInstruction, buildNoFabricationInstruction } = require('./promptPolicy.cjs');
+
 function scoringAnalysisSystemPrompt() {
   return `你是一个专业的招标评分分析专家。请从技术评分要求中提取结构化的评分信息。
 
@@ -11,7 +13,11 @@ function scoringAnalysisSystemPrompt() {
 2. 识别每个大类下的评分子项
 3. 计算各评分维度的权重占比
 4. 分析评分重点和优先级
-5. 只返回 JSON，不要输出其他内容`;
+5. 原文没有明确分值时不得推断分值，分值填 0，并在 description 或 analysisSummary 中标记“原文未明确分值，需人工核验”。
+6. 只返回 JSON，不要输出其他内容
+
+${buildEvidenceBoundaryInstruction()}
+${buildNoFabricationInstruction()}`;
 }
 
 function buildScoringAnalysisMessages(requirements) {
@@ -63,7 +69,7 @@ function buildScoringAnalysisMessages(requirements) {
 - priority 根据分值占比判断：>=30% 为 high，15-29% 为 medium，<15% 为 low
 - distribution 中的维度名称使用英文 key，值为百分比数字
 - recommendations 要具体、可操作，指导内容编写重点
-- 如果原文没有明确分值，根据内容重要性合理推断`,
+- 如果原文没有明确分值，不得根据重要性推断；分值填 0，并明确写入“原文未明确分值，需人工核验”`,
     },
   ];
 }

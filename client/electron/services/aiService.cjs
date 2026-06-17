@@ -30,6 +30,16 @@ const MAX_AI_LOG_TITLE_LENGTH = 64;
 const IMAGE_MODEL_TEST_TIMEOUT_MESSAGE = '生图模型测试超时，请检查 Base URL、API Key 或模型名称';
 const ANALYTICS_ENDPOINT = '';
 const ANALYTICS_PROJECT_NAME = 'bibooks';
+const OFFLINE_TEXT_MODEL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp', 'vllm']);
+
+function isOfflineTextModelConfig(config) {
+  return config?.provider_type === 'offline' || OFFLINE_TEXT_MODEL_PROVIDERS.has(config?.text_model_provider);
+}
+
+function requireTextModelApiKey(config) {
+  return !isOfflineTextModelConfig(config);
+}
+
 const OPENAI_IMAGE_PROVIDER_META = {
   jinlong: {
     label: '金龙中转站',
@@ -228,10 +238,11 @@ function createOperationTimeout(timeoutMs) {
 }
 
 function createHeaders(apiKey) {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
-  };
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
 }
 
 function trackAiRequest(app, config, payload) {
@@ -794,7 +805,7 @@ async function fetchChatCompletion(app, config, body, options = {}) {
 }
 
 async function chatWithConfig(app, config, request) {
-  if (!config.api_key) {
+  if (requireTextModelApiKey(config) && !config.api_key) {
     throw new Error('请先在设置中配置文本模型 API Key');
   }
 
@@ -1275,7 +1286,7 @@ function createAiService({ app, configStore }) {
     async listModels(configOverride) {
       const config = configOverride || configStore.load();
 
-      if (!config.api_key) {
+      if (requireTextModelApiKey(config) && !config.api_key) {
         return { success: false, message: '请先填写文本模型 API Key', models: [] };
       }
 

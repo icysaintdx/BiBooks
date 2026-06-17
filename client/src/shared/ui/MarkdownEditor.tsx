@@ -3,6 +3,7 @@ import { useRef } from 'react';
 export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onSelectionChange?: (selection: { start: number; end: number }) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -17,8 +18,16 @@ const toolbarActions = [
   { id: 'ordered-list', label: '有序列表', title: '有序列表', prefix: '1. ', suffix: '', content: '1.' },
 ];
 
-function MarkdownEditor({ value, onChange, placeholder = '输入 Markdown 内容...', className, disabled = false }: MarkdownEditorProps) {
+function MarkdownEditor({ value, onChange, onSelectionChange, placeholder = '输入 Markdown 内容...', className, disabled = false }: MarkdownEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  function emitSelection() {
+    const textarea = textareaRef.current;
+    if (!textarea || !onSelectionChange) {
+      return;
+    }
+    onSelectionChange({ start: textarea.selectionStart, end: textarea.selectionEnd });
+  }
 
   function insertMarkdown(prefix: string, suffix = '') {
     const textarea = textareaRef.current;
@@ -38,6 +47,7 @@ function MarkdownEditor({ value, onChange, placeholder = '输入 Markdown 内容
       textarea.scrollTop = scrollTop;
       textarea.selectionStart = start + prefix.length;
       textarea.selectionEnd = start + prefix.length + selected.length;
+      emitSelection();
     });
   }
 
@@ -62,6 +72,10 @@ function MarkdownEditor({ value, onChange, placeholder = '输入 Markdown 内容
         className="markdown-editor-textarea"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onSelect={emitSelection}
+        onKeyUp={emitSelection}
+        onMouseUp={emitSelection}
+        onClick={emitSelection}
         placeholder={placeholder}
         disabled={disabled}
       />

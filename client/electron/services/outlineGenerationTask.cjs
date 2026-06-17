@@ -1,5 +1,7 @@
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
 const { createTemplateKnowledgeService } = require('./templateKnowledgeService.cjs');
+const { buildEvidenceBoundaryInstruction, buildNoFabricationInstruction } = require('./promptPolicy.cjs');
+const { buildIndustryBoundaryInstruction } = require('./industryPromptPolicy.cjs');
 
 function formatSuggestions(suggestions) {
   if (!suggestions?.length) return '';
@@ -95,7 +97,10 @@ function outlineSystemPrompt() {
 3. 一级目录名称要与技术评分要求中的章节名称一致；如果技术评分要求中没有明确章节名称，则结合内容总结一级目录名称
 4. 一共包括三级目录
 5. 返回标准 JSON 格式，包含章节编号、标题、描述和子章节
-6. 除了 JSON 结果外，不要输出任何其他内容
+6. ${buildNoFabricationInstruction()}
+7. 除了 JSON 结果外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}
 
 JSON 格式要求：
 {
@@ -132,7 +137,10 @@ function topLevelOutlineSystemPrompt() {
 2. 一级目录名称要专业、准确，符合投标文件规范
 3. 一级目录名称要尽量与技术评分要求中的章节名称一致；如果技术评分要求中没有明确章节名称，则结合内容总结一级目录名称
 4. 返回标准 JSON 格式，使用 outline 字段，每个一级目录必须包含 id、title、description
-5. 除了 JSON 结果外，不要输出任何其他内容
+5. ${buildNoFabricationInstruction()}
+6. 除了 JSON 结果外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}
 
 JSON 格式要求：
 {
@@ -179,6 +187,9 @@ function extractRequirementGroupsMessages(requirements, suggestions) {
 5. description 需要概括该大类关注的核心内容
 6. detail_points 中保留该大类下的关键评分细项，使用简洁短句
 7. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容
+8. ${buildNoFabricationInstruction()}
+
+${buildEvidenceBoundaryInstruction()}
 
 JSON 格式要求：
 {
@@ -213,7 +224,10 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 4. 返回标准 JSON，格式为 {"children": [...]}，children 中只能包含当前一级目录的直接子目录
 5. 每个节点必须包含 id、title、description，三级目录继续使用 children 字段
 6. 章节编号必须以给定的一级目录编号为前缀，例如父级是 2，则二级目录编号从 2.1 开始，三级目录编号从 2.1.1 开始
-7. 除了 JSON 结果外，不要输出任何其他内容`;
+7. ${buildNoFabricationInstruction()}
+8. 除了 JSON 结果外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}`;
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -235,7 +249,10 @@ function generateChildrenMessages({ overview, requirements, parentItem, suggesti
 3. children 中只能包含当前一级目录的直接子目录，每个节点必须包含 id、title、description
 4. 二级目录下如有三级目录，同样使用 children 字段
 5. 章节编号必须以给定的一级目录编号为前缀，例如父级是 2，则二级目录编号从 2.1 开始，三级目录编号从 2.1.1 开始
-6. 除了 JSON 结果外，不要输出任何其他内容`;
+6. ${buildNoFabricationInstruction()}
+7. 除了 JSON 结果外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}`;
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -256,7 +273,10 @@ function reviewOutlineMessages({ overview, requirements, outline }) {
 3. 检查目录层级是否清晰，是否达到三级目录要求，是否存在明显遗漏、错位、重复或不合理章节
 4. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
 5. 若不通过，suggestions 中必须给出具体、可执行的修改建议
-6. 除了 JSON 外，不要输出任何其他内容`;
+6. ${buildNoFabricationInstruction()}
+7. 除了 JSON 外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}`;
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -276,7 +296,10 @@ function reviewAlignedOutlineMessages({ overview, requirements, groups, outline 
 4. 检查完整目录是否层级清晰，整体是否达到三级目录要求
 5. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
 6. 若不通过，suggestions 中必须给出具体、可执行的修改建议，重点说明哪个评分大类覆盖不足或结构不合理
-7. 除了 JSON 外，不要输出任何其他内容`;
+7. ${buildNoFabricationInstruction()}
+8. 除了 JSON 外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}`;
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -1015,6 +1038,8 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
   if (storedPlan.industryCode) {
     try {
       industryContext = generateIndustryGuideMarkdown(storedPlan.industryCode);
+      const industryBoundary = buildIndustryBoundaryInstruction(storedPlan.industryCode);
+      if (industryBoundary) industryContext = `${industryBoundary}\n\n${industryContext}`;
       log(`已加载 ${storedPlan.industryName || '通用'} 行业知识。`);
     } catch (error) {
       // 行业知识加载失败不影响主流程

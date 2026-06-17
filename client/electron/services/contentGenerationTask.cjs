@@ -1,5 +1,7 @@
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const { buildEvidenceBoundaryInstruction, buildNoFabricationInstruction } = require('./promptPolicy.cjs');
+const { buildIndustryBoundaryInstruction } = require('./industryPromptPolicy.cjs');
 const { createNoopDeveloperLogger } = require('../utils/developerLog.cjs');
 const { countReadableWords } = require('../utils/wordCount.cjs');
 
@@ -634,7 +636,7 @@ function formatKnowledgeContentsForPrompt(contents) {
     .join('\n\n');
 }
 
-function buildChapterContentMessages({ chapter, parentChapters, siblingChapters, projectOverview, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }) {
+function buildChapterContentMessages({ chapter, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }) {
   const chapterId = chapter.id || 'unknown';
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
@@ -656,12 +658,18 @@ function buildChapterContentMessages({ chapter, parentChapters, siblingChapters,
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
 11. 如需在正文中分层表达，只能使用普通段落、列表、表格或加粗引导语，例如 **实施要点：**。
 12. 直接返回章节内容，不生成标题，不要任何额外说明。
-13. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。`,
+13. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
+14. ${buildNoFabricationInstruction()}
+
+${buildEvidenceBoundaryInstruction({ finalDocument: true })}`,
     },
   ];
 
   if (String(projectOverview || '').trim()) {
     messages.push({ role: 'user', content: `项目概述信息：\n${projectOverview}` });
+  }
+  if (String(industryContext || '').trim()) {
+    messages.push({ role: 'user', content: `行业参考边界：\n${industryContext}` });
   }
   appendSelectedFactsMessage(messages, selectedFactsText);
 
@@ -1520,6 +1528,55 @@ function resolveSelectedFactsText(contentPlan, globalFacts) {
   return formatSelectedGlobalFactsForPrompt(selectedFacts);
 }
 
+function recordSectionSourceAnnotations({ sourceAnnotationStore, item, contentPlan, selectedFactsText, knowledgeContents }) {
+  if (!sourceAnnotationStore || typeof sourceAnnotationStore.replaceForTarget !== 'function') return;
+  const annotations = [];
+  if (String(selectedFactsText || '').trim()) {
+    annotations.push({
+      sourceType: 'database',
+      sourceTitle: '全局事实变量',
+      sourceRef: JSON.stringify(contentPlan?.facts?.titles || []),
+      excerpt: String(selectedFactsText || '').slice(0, 1200),
+      claim: '本章节生成时引用了项目全局事实变量，正文应与这些变量保持一致。',
+      riskLevel: 'low',
+      requiresApproval: false,
+      approvalStatus: 'approved',
+    });
+  }
+  if (contentPlan?.knowledge?.item_ids?.length) {
+    annotations.push({
+      sourceType: 'knowledge_base',
+      sourceTitle: '参考知识库条目',
+      sourceRef: JSON.stringify(contentPlan.knowledge.item_ids),
+      excerpt: (knowledgeContents || []).map((content) => String(content || '').slice(0, 300)).join('\n---\n').slice(0, 1200),
+      claim: '本章节生成时吸收了知识库素材，需确认未迁移历史项目的专属名称、金额、地点、人员或承诺。',
+      riskLevel: 'medium',
+      requiresApproval: false,
+      approvalStatus: 'approved',
+    });
+  }
+  annotations.push({
+    sourceType: 'tender_file',
+    sourceTitle: '招标文件解析与章节上下文',
+    sourceRef: item?.source_requirement_id || item?.id || '',
+    excerpt: item?.source_requirement_title || item?.description || '',
+    claim: '本章节应围绕招标文件解析结果、目录章节描述和上下级章节上下文展开。',
+    riskLevel: 'low',
+    requiresApproval: false,
+    approvalStatus: 'approved',
+  });
+  try {
+    sourceAnnotationStore.replaceForTarget({
+      projectScope: 'technical_plan',
+      targetType: 'content_section',
+      targetId: item?.id || '',
+      annotations,
+    });
+  } catch (_error) {
+    // 来源标注失败不能中断正文生成。
+  }
+}
+
 function updateOutlineItemContent(items, targetId, content) {
   return (items || []).map((item) => {
     if (item.id === targetId) {
@@ -2182,7 +2239,7 @@ function withSection(sections, item, partial) {
   };
 }
 
-async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBaseService, updateTask, payload, taskControl, previousState }) {
+async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBaseService, sourceAnnotationStore, updateTask, payload, taskControl, previousState }) {
   const resume = Boolean(payload.resume);
   const storedPlan = resume ? (previousState || {}) : (workspaceStore.loadTechnicalPlan() || {});
   let outlineData = storedPlan.outlineData;
@@ -2236,6 +2293,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
   const minimumWords = hasTargets ? 0 : normalizeMinimumWords(generationOptions.minimumWords ?? generationOptions.minimum_words);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
+  const industryContext = buildIndustryBoundaryInstruction(storedPlan.industryCode);
   const imageAvailability = aiService.getImageModelAvailability
     ? aiService.getImageModelAvailability()
     : { available: false, message: '生图模型不可用' };
@@ -2762,7 +2820,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
       const selectedFactsText = resolveSelectedFactsText(contentPlan, globalFacts);
 
       const generatedContent = await aiService.chat({
-        messages: buildChapterContentMessages({ chapter: item, parentChapters, siblingChapters, projectOverview, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }),
+        messages: buildChapterContentMessages({ chapter: item, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }),
         temperature: 0.7,
         logTitle: `正文生成-${item.id}-${item.title || '未命名章节'}`,
       });
@@ -2771,6 +2829,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
       content = stripRepeatedChapterTitle(normalizeGeneratedMarkdown(rawContent), item);
       logs = [...logs, `生成完成：${item.id} ${item.title || '未命名章节'}`];
       rememberTouchedItem(item.id);
+      recordSectionSourceAnnotations({ sourceAnnotationStore, item, contentPlan, selectedFactsText, knowledgeContents });
       saveSection(item, { status: 'success', content, error: undefined }, content, { logs });
     } catch (error) {
       const message = error.message || '正文生成失败';

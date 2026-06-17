@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 
 const bridge = {
   appName: 'BiBooks 自动标书',
@@ -26,11 +26,34 @@ const bridge = {
     ipcRenderer.on('app:update-error', listener);
     return () => ipcRenderer.removeListener('app:update-error', listener);
   },
+  projectWorkspace: {
+    list: (options) => ipcRenderer.invoke('project-workspace:list', options),
+    create: (input) => ipcRenderer.invoke('project-workspace:create', input),
+    update: (projectId, patch) => ipcRenderer.invoke('project-workspace:update', projectId, patch),
+    select: (projectId, options) => ipcRenderer.invoke('project-workspace:select', projectId, options),
+    delete: (projectId) => ipcRenderer.invoke('project-workspace:delete', projectId),
+    restore: (projectId) => ipcRenderer.invoke('project-workspace:restore', projectId),
+    destroy: (projectId) => ipcRenderer.invoke('project-workspace:destroy', projectId),
+    clearCurrent: () => ipcRenderer.invoke('project-workspace:clear-current'),
+    selectTenderFile: () => ipcRenderer.invoke('project-workspace:select-tender-file'),
+    saveLastSection: (section) => ipcRenderer.invoke('project-workspace:save-last-section', section),
+  },
+  repairTasks: {
+    list: (filter) => ipcRenderer.invoke('repair-tasks:list', filter),
+    save: (input) => ipcRenderer.invoke('repair-tasks:save', input),
+    update: (taskId, patch) => ipcRenderer.invoke('repair-tasks:update', taskId, patch),
+    bulkUpdateStatus: (taskIds, status, decision) => ipcRenderer.invoke('repair-tasks:bulk-update-status', taskIds, status, decision),
+    delete: (taskId) => ipcRenderer.invoke('repair-tasks:delete', taskId),
+  },
   config: {
     load: () => ipcRenderer.invoke('config:load'),
     save: (config) => ipcRenderer.invoke('config:save', config),
     listModels: (config) => ipcRenderer.invoke('config:list-models', config),
     openConfigFolder: () => ipcRenderer.invoke('config:open-config-folder'),
+    listFonts: () => ipcRenderer.invoke('config:list-fonts'),
+    openFontsFolder: () => ipcRenderer.invoke('config:open-fonts-folder'),
+    importFonts: () => ipcRenderer.invoke('config:import-fonts'),
+    installFonts: () => ipcRenderer.invoke('config:install-fonts'),
   },
   ai: {
     chat: (request) => ipcRenderer.invoke('ai:chat', request),
@@ -69,6 +92,11 @@ const bridge = {
     saveGlobalFacts: (globalFacts) => ipcRenderer.invoke('technical-plan:save-global-facts', globalFacts),
     saveContentGenerationOptions: (options) => ipcRenderer.invoke('technical-plan:save-content-generation-options', options),
     saveChapterContent: (payload) => ipcRenderer.invoke('technical-plan:save-chapter-content', payload),
+    listSourceAnnotations: (filter) => ipcRenderer.invoke('technical-plan:list-source-annotations', filter),
+    saveSourceAnnotation: (annotation) => ipcRenderer.invoke('technical-plan:save-source-annotation', annotation),
+    approveSourceAnnotation: (annotationId, approvedBy) => ipcRenderer.invoke('technical-plan:approve-source-annotation', annotationId, approvedBy),
+    rejectSourceAnnotation: (annotationId, approvedBy) => ipcRenderer.invoke('technical-plan:reject-source-annotation', annotationId, approvedBy),
+    deleteSourceAnnotation: (annotationId) => ipcRenderer.invoke('technical-plan:delete-source-annotation', annotationId),
     clear: () => ipcRenderer.invoke('technical-plan:clear'),
   },
   duplicateCheck: {
@@ -117,9 +145,15 @@ const bridge = {
   },
   competitiveAnalysis: {
     generate: (payload) => ipcRenderer.invoke('competitive-analysis:generate', payload),
+    list: () => ipcRenderer.invoke('competitive-analysis:list'),
+    getLatest: () => ipcRenderer.invoke('competitive-analysis:get-latest'),
+    delete: (id) => ipcRenderer.invoke('competitive-analysis:delete', id),
   },
   complianceCheck: {
     check: (payload) => ipcRenderer.invoke('compliance-check:check', payload),
+    list: () => ipcRenderer.invoke('compliance-check:list'),
+    getLatest: () => ipcRenderer.invoke('compliance-check:get-latest'),
+    delete: (id) => ipcRenderer.invoke('compliance-check:delete', id),
     getRules: () => ipcRenderer.invoke('compliance-check:get-rules'),
   },
   privateKnowledgeBase: {
@@ -134,6 +168,14 @@ const bridge = {
     getStatistics: () => ipcRenderer.invoke('private-kb:get-statistics'),
     importItems: (items) => ipcRenderer.invoke('private-kb:import', items),
     exportItems: (category) => ipcRenderer.invoke('private-kb:export', category),
+  },
+  pricing: {
+    list: () => ipcRenderer.invoke('pricing:list'),
+    get: (id) => ipcRenderer.invoke('pricing:get', id),
+    save: (sheet) => ipcRenderer.invoke('pricing:save', sheet),
+    delete: (id) => ipcRenderer.invoke('pricing:delete', id),
+    calculate: (sheet) => ipcRenderer.invoke('pricing:calculate', sheet),
+    exportMarkdown: (sheet) => ipcRenderer.invoke('pricing:export-markdown', sheet),
   },
   apiServer: {
     start: (options) => ipcRenderer.invoke('api-server:start', options),
@@ -245,3 +287,4 @@ contextBridge.exposeInMainWorld('yibiaoClient', {
   appName: bridge.appName,
   platform: bridge.platform,
 });
+

@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
+const { analyzeParsedMarkdown } = require('./documentQuality.cjs');
 const { getTechnicalPlanTenderMarkdownPath } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 
@@ -29,6 +30,7 @@ const initialState = {
   outlineData: null,
   scoringAnalysis: undefined,
   scoringAnalysisTask: undefined,
+  tenderParseQuality: undefined,
 };
 
 const taskFieldTypes = {
@@ -702,6 +704,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       contentGenerationPlans: loadContentPlans(),
       outlineData,
       scoringAnalysis: safeJsonParse(meta.scoring_analysis_json, undefined),
+      tenderParseQuality: safeJsonParse(meta.tender_parse_quality_json, undefined),
     };
   }
 
@@ -711,6 +714,68 @@ function createTechnicalPlanStore({ app, db, fileService }) {
 
   function updateTechnicalPlan(partial) {
     updateTechnicalPlanTransaction(partial || {});
+    return loadTechnicalPlan();
+  }
+
+  function clearTechnicalPlanRows() {
+    const transaction = db.transaction(() => {
+      db.prepare('DELETE FROM technical_plan_tasks').run();
+      db.prepare('DELETE FROM technical_plan_bid_items').run();
+      db.prepare('DELETE FROM technical_plan_reference_docs').run();
+      db.prepare('DELETE FROM technical_plan_outline_nodes').run();
+      db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
+      db.prepare('DELETE FROM technical_plan_meta').run();
+      ensureMetaRow();
+    });
+    transaction();
+  }
+
+  function exportTechnicalPlanSnapshot() {
+    return {
+      state: loadTechnicalPlan(),
+      markdown: readTenderMarkdown(),
+    };
+  }
+
+  function restoreTechnicalPlanSnapshot(snapshot = {}) {
+    clearTechnicalPlanRows();
+    if (fs.existsSync(tenderMarkdownPath)) {
+      fs.rmSync(tenderMarkdownPath, { force: true });
+    }
+    const state = snapshot.state || null;
+    if (!state) return loadTechnicalPlan();
+
+    const markdown = String(snapshot.markdown || '').trim();
+    if (markdown) {
+      fs.mkdirSync(path.dirname(tenderMarkdownPath), { recursive: true });
+      fs.writeFileSync(tenderMarkdownPath, `${markdown}\n`, 'utf-8');
+    }
+
+    const transaction = db.transaction(() => {
+      updateMeta({
+        step: isValidStep(state.step) ? state.step : 'document-analysis',
+        tender_file_name: state.tenderFile?.fileName || null,
+        tender_markdown_path: markdown ? tenderMarkdownRelativePath : null,
+        tender_markdown_hash: markdown ? stableHash(markdown) : null,
+        tender_markdown_chars: markdown.length,
+        tender_parser_label: state.tenderFile?.parserLabel || null,
+        tender_imported_at: state.tenderFile?.importedAt || null,
+        bid_analysis_mode: isValidBidMode(state.bidAnalysisMode) ? state.bidAnalysisMode : 'key',
+        outline_mode: isValidOutlineMode(state.outlineMode) ? state.outlineMode : 'aligned',
+        content_generation_options_json: jsonOrNull(state.contentGenerationOptions),
+        content_generation_runtime_json: jsonOrNull(state.contentGenerationRuntime),
+        scoring_analysis_json: jsonOrNull(state.scoringAnalysis),
+        tender_parse_quality_json: jsonOrNull(state.tenderParseQuality),
+      });
+      replaceReferenceDocumentIds(state.referenceKnowledgeDocumentIds || []);
+      saveBidItems(state.bidAnalysisTasks || {}, state.bidAnalysisMode);
+      replaceGlobalFacts(state.globalFacts || []);
+      if (state.outlineData) saveOutlineData(state.outlineData);
+      saveContentSections(state.contentGenerationSections || {});
+      saveContentPlans(state.contentGenerationPlans || {});
+      for (const [field, type] of Object.entries(taskFieldTypes)) saveTask(type, state[field]);
+    });
+    transaction();
     return loadTechnicalPlan();
   }
 
@@ -787,6 +852,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     }
 
     const markdown = String(result.file_content || '').trim();
+    const parseQuality = analyzeParsedMarkdown(markdown);
     const targetDir = path.dirname(tenderMarkdownPath);
     const tempPath = path.join(targetDir, `tender-${Date.now()}.tmp.md`);
     fs.mkdirSync(targetDir, { recursive: true });
@@ -804,6 +870,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
           tender_markdown_chars: markdown.length,
           tender_parser_label: result.parser_label || null,
           tender_imported_at: timestamp,
+          tender_parse_quality_json: JSON.stringify(parseQuality),
         });
       });
       transaction();
@@ -820,16 +887,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
   }
 
   function clearTechnicalPlan() {
-    const transaction = db.transaction(() => {
-      db.prepare('DELETE FROM technical_plan_tasks').run();
-      db.prepare('DELETE FROM technical_plan_bid_items').run();
-      db.prepare('DELETE FROM technical_plan_reference_docs').run();
-      db.prepare('DELETE FROM technical_plan_outline_nodes').run();
-      db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
-      db.prepare('DELETE FROM technical_plan_meta').run();
-      ensureMetaRow();
-    });
-    transaction();
+    clearTechnicalPlanRows();
     if (fs.existsSync(tenderMarkdownPath)) {
       fs.rmSync(tenderMarkdownPath, { force: true });
     }
@@ -840,6 +898,8 @@ function createTechnicalPlanStore({ app, db, fileService }) {
   return {
     loadTechnicalPlan,
     updateTechnicalPlan,
+    exportTechnicalPlanSnapshot,
+    restoreTechnicalPlanSnapshot,
     clearTechnicalPlan,
     importTenderDocument,
     readTenderMarkdown,

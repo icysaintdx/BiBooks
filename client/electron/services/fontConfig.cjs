@@ -4,11 +4,14 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { logInfo, logWarn } = require('../utils/logger.cjs');
 
 // 字体目录
 const FONTS_DIR = path.join(__dirname, '..', 'fonts');
+const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.ttc', '.woff', '.woff2']);
 
 // 公文标准字体映射
 const OFFICIAL_FONTS = {
@@ -90,9 +93,13 @@ const OFFICIAL_FORMAT = {
  * 检测字体是否已安装
  */
 function isFontAvailable(fontName) {
-  // 在 Electron 中，我们可以通过检查系统字体列表来判断
-  // 这里简化处理，返回 false 让系统使用 fallback
-  return false;
+  const target = String(fontName || '').trim().toLowerCase();
+  if (!target) return false;
+  return listBundledFonts().some((font) => (
+    font.name.toLowerCase() === target
+    || font.family.toLowerCase() === target
+    || font.fileName.toLowerCase() === target
+  ));
 }
 
 /**
@@ -255,6 +262,128 @@ function loadCustomFonts() {
   return fontFiles;
 }
 
+function ensureFontsDir() {
+  fs.mkdirSync(FONTS_DIR, { recursive: true });
+  return FONTS_DIR;
+}
+
+function fontFamilyFromFileName(fileName) {
+  return path.basename(fileName, path.extname(fileName))
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function listBundledFonts() {
+  ensureFontsDir();
+  return fs.readdirSync(FONTS_DIR)
+    .filter((fileName) => FONT_EXTENSIONS.has(path.extname(fileName).toLowerCase()))
+    .map((fileName) => {
+      const filePath = path.join(FONTS_DIR, fileName);
+      const stat = fs.statSync(filePath);
+      return {
+        fileName,
+        filePath,
+        family: fontFamilyFromFileName(fileName),
+        name: fontFamilyFromFileName(fileName),
+        extension: path.extname(fileName).toLowerCase(),
+        size: stat.size,
+        installed: isFontInstalledForCurrentUser(fileName),
+      };
+    });
+}
+
+function getUserFontsDir() {
+  if (process.platform !== 'win32') return '';
+  return path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'Windows', 'Fonts');
+}
+
+function isFontInstalledForCurrentUser(fileName) {
+  if (process.platform !== 'win32') {
+    return false;
+  }
+  const targetPath = path.join(getUserFontsDir(), fileName);
+  return fs.existsSync(targetPath);
+}
+
+function importFontFiles(sourceFiles = []) {
+  const fontsDir = ensureFontsDir();
+  const imported = [];
+  const skipped = [];
+
+  for (const sourceFile of sourceFiles || []) {
+    const sourcePath = String(sourceFile || '').trim();
+    const ext = path.extname(sourcePath).toLowerCase();
+    if (!sourcePath || !FONT_EXTENSIONS.has(ext) || !fs.existsSync(sourcePath)) {
+      skipped.push({ sourcePath, reason: '不是可导入的字体文件' });
+      continue;
+    }
+
+    const targetPath = path.join(fontsDir, path.basename(sourcePath));
+    if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+    imported.push({
+      fileName: path.basename(targetPath),
+      filePath: targetPath,
+      family: fontFamilyFromFileName(targetPath),
+    });
+  }
+
+  return { success: true, fontsDir, imported, skipped, fonts: listBundledFonts() };
+}
+
+function installBundledFonts() {
+  const fonts = listBundledFonts();
+  if (process.platform !== 'win32') {
+    return {
+      success: false,
+      message: '当前自动安装仅支持 Windows。其他系统请在字体文件夹中手动安装。',
+      fonts,
+    };
+  }
+
+  const userFontsDir = getUserFontsDir();
+  fs.mkdirSync(userFontsDir, { recursive: true });
+  const installed = [];
+  const failed = [];
+
+  for (const font of fonts) {
+    try {
+      const targetPath = path.join(userFontsDir, font.fileName);
+      if (!fs.existsSync(targetPath)) {
+        fs.copyFileSync(font.filePath, targetPath);
+      }
+      const registryName = `${font.family} (TrueType)`;
+      execFileSync('reg', [
+        'add',
+        'HKCU\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
+        '/v',
+        registryName,
+        '/t',
+        'REG_SZ',
+        '/d',
+        targetPath,
+        '/f',
+      ], { windowsHide: true });
+      installed.push({ ...font, installedPath: targetPath });
+    } catch (error) {
+      failed.push({ ...font, error: error.message || String(error) });
+    }
+  }
+
+  return {
+    success: failed.length === 0,
+    message: failed.length
+      ? `已安装 ${installed.length} 个字体，${failed.length} 个失败。`
+      : `已安装 ${installed.length} 个字体。重启应用后字体列表会更稳定。`,
+    fontsDir: FONTS_DIR,
+    installed,
+    failed,
+    fonts: listBundledFonts(),
+  };
+}
+
 module.exports = {
   OFFICIAL_FONTS,
   OFFICIAL_FORMAT,
@@ -262,5 +391,10 @@ module.exports = {
   getDocxDefaultStyles,
   getPageSettings,
   loadCustomFonts,
+  listBundledFonts,
+  importFontFiles,
+  installBundledFonts,
+  ensureFontsDir,
+  FONTS_DIR,
   isFontAvailable,
 };

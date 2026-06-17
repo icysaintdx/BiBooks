@@ -168,7 +168,15 @@ function listIndustryTemplates() {
  * @returns {Object|null} 行业模板
  */
 function getIndustryTemplate(industryCode) {
-  return BUILTIN_INDUSTRY_TEMPLATES[industryCode] || null;
+  const aliases = {
+    it_information: 'it',
+    consulting: 'service',
+    logistics: 'service',
+    operation_service: 'service',
+    government_procurement: 'service',
+  };
+  const normalizedCode = aliases[industryCode] || industryCode;
+  return BUILTIN_INDUSTRY_TEMPLATES[normalizedCode] || null;
 }
 
 /**

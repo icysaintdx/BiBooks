@@ -224,7 +224,7 @@ function createTask(type, payload) {
   };
 }
 
-function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService }) {
+function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService, sourceAnnotationStore }) {
   const subscribers = new Set();
   const activeTasks = new Map();
   const activeTaskControls = new Map();
@@ -695,7 +695,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       });
     },
     startContentGeneration(payload) {
-      return startManagedTask('content-generation', payload, runContentGenerationTask);
+      return startManagedTask('content-generation', payload, (request) => runContentGenerationTask({ ...request, sourceAnnotationStore }));
     },
     startScoringAnalysis(payload) {
       return startManagedTask('scoring-analysis', payload, runScoringAnalysisTask);

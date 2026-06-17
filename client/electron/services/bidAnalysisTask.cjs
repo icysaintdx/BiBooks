@@ -1,3 +1,5 @@
+const { buildEvidenceBoundaryInstruction, buildNoFabricationInstruction } = require('./promptPolicy.cjs');
+
 const stableSystemPrompt = `你是专业的招标文件分析助手。请严格基于用户提供的招标文件原文完成提取和总结。
 
 通用要求：
@@ -108,7 +110,7 @@ function getBidAnalysisTaskById(taskId) {
 
 function buildMessages(fileContent, task) {
   return [
-    { role: 'system', content: stableSystemPrompt },
+    { role: 'system', content: `${stableSystemPrompt}\n\n${buildEvidenceBoundaryInstruction()}\n${buildNoFabricationInstruction()}` },
     { role: 'user', content: `以下是完整招标文件 Markdown 原文。后续任务必须仅基于这份原文完成：\n\n${fileContent}` },
     { role: 'user', content: task.prompt() },
   ];

@@ -1,3 +1,5 @@
+const { buildEvidenceBoundaryInstruction, buildNoFabricationInstruction } = require('./promptPolicy.cjs');
+
 function singleLine(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -232,8 +234,11 @@ function buildFirstRoundMessages({ tenderMarkdown, outlineData, bidAnalysisFacts
 1. 以“已生成技术方案目录”为主，判断在这些目录的正文写作时，哪些变量一旦随机生成就会导致全文前后不一致。
 2. 必须要包含的变量类别：工期、运维期或交货时间，这三个至少有一个，根据项目类型判断用哪个。其他变量类别由你自行判断，比如；人名、时间、品牌、型号、质保期等根据用户提交内容仔细分析。
 3. 招标文件、关键解析结果和知识库可以作为参考，如果里面有能用到的信息，优先使用。
-4. 如果用户提交的材料中没有可用信息，但是你分析某变量对全文一致性很重要，你需要根据你的专业能力来编辑，允许出现虚拟内容，但必须合情合理。
+4. 如果用户提交的材料中没有可用信息，但是你分析某变量对全文一致性很重要，只能写“需人工补充/需核验”，不得编造虚拟人名、期限、型号、地点、承诺或参数。
 5. 仅编写技术方案部分，不要涉及商务部分所需要的内容。
+6. ${buildNoFabricationInstruction()}
+
+${buildEvidenceBoundaryInstruction()}
 
 输出要求：
 1. 只返回有价值的变量组。
@@ -275,7 +280,11 @@ function buildSecondRoundMessages({ tenderMarkdown, outlineData, bidAnalysisFact
 5. mode 只能是 append、prepend 或 replace；默认使用 append。只有已有大项明显不适合作为变量表时才使用 replace。
 6. 每条 content 只写短 bullet，直接给可复用的变量值，不要写分析过程、来源说明、风险提示或正文草稿。
 7. 没有可补充内容时返回 {"patches":[]}。
-8. 只返回 JSON。`,
+8. 不得补充任何没有来源支撑的虚拟值；缺失但重要的变量只能写“需人工补充/需核验”。
+9. ${buildNoFabricationInstruction()}
+10. 只返回 JSON。
+
+${buildEvidenceBoundaryInstruction()}`,
     },
     { role: 'user', content: `招标文件原文：\n${tenderMarkdown}` },
     { role: 'user', content: `关键解析结果：\n${bidAnalysisFactsText}` },

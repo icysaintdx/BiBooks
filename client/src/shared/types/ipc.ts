@@ -1,10 +1,11 @@
 import type { ChatCompletionRequest, JsonCompletionRequest } from './ai';
 import type { DuplicateCheckWorkspaceState, FileSelectionResult } from './bid';
-import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelListResult } from './config';
+import type { ClientConfig, ConfigSaveResult, FontImportResult, FontInfo, FontInstallResult, ImageModelTestResult, ModelListResult } from './config';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeBaseMigrationResult, KnowledgeBaseMigrationStatus, KnowledgeBaseMutationResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
-import type { BidAnalysisTaskState, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, GlobalFactGroupState, TechnicalPlanState, TechnicalPlanStep } from '../../features/technical-plan/types';
+import type { BidAnalysisTaskState, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, GlobalFactGroupState, SourceAnnotation, SourceAnnotationFilter, SourceAnnotationInput, TechnicalPlanState, TechnicalPlanStep } from '../../features/technical-plan/types';
 import type { OutlineData, OutlineMode } from './outline';
+import type { SectionId } from './navigation';
 
 export interface TaskEvent<TState = unknown, TRejectionCheckState = unknown, TDuplicateCheckState = unknown> {
   task: unknown;
@@ -123,6 +124,17 @@ export interface ComplianceCheckReport {
   }>;
 }
 
+export interface ProjectAnalysisRecord<TResult = unknown, TInput = unknown> {
+  id: string;
+  bidProjectId: string;
+  type: 'competitive' | 'compliance';
+  title: string;
+  input: TInput;
+  result: TResult;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PrivateKnowledgeCategory {
   id: string;
   name: string;
@@ -169,6 +181,101 @@ export interface UpdateCheckResult {
   downloaded?: boolean;
   failed?: boolean;
   message?: string;
+}
+
+export interface BidProjectSummary {
+  id: string;
+  name: string;
+  tenderFileName: string;
+  tenderFilePath: string;
+  projectDir: string;
+  status: string;
+  lastSection: SectionId;
+  notes: string;
+  hasPassword: boolean;
+  isUnlocked: boolean;
+  deletedAt: string;
+  purgeAfter: string;
+  createdAt: string;
+  updatedAt: string;
+  lastOpenedAt: string;
+}
+
+export interface ProjectWorkspaceState {
+  currentProjectId: string;
+  projects: BidProjectSummary[];
+  project?: BidProjectSummary;
+}
+
+export type RepairTaskStatus = 'open' | 'in_progress' | 'fixed' | 'ignored' | 'needs_review';
+export type RepairTaskSeverity = 'critical' | 'major' | 'warning' | 'info';
+export type RepairTaskSourceModule = 'delivery_check' | 'pricing' | 'duplicate_check' | 'rejection_check' | 'compliance' | 'commercial_bid' | 'competitive_analysis' | 'manual';
+export type RepairTaskTargetType = 'technical_section' | 'pricing_sheet' | 'commercial_section' | 'qualification' | 'project' | 'document';
+
+export interface RepairTaskPatch {
+  source?: string;
+  chapter?: string;
+  sectionId?: string;
+  paragraphId?: string;
+  field?: string;
+  original?: string;
+  suggested?: string;
+  reason?: string;
+  references?: Array<{
+    type: 'database' | 'knowledge_base' | 'history_case' | 'file' | 'internet' | 'manual';
+    label: string;
+    value?: string;
+  }>;
+  diffs?: Array<{
+    type: 'add' | 'remove' | 'modify' | 'move';
+    path?: string;
+    original?: string;
+    suggested?: string;
+  }>;
+  notes?: string;
+}
+
+export interface RepairTask {
+  id: string;
+  bidProjectId: string;
+  sourceModule: RepairTaskSourceModule | string;
+  sourceRecordId: string;
+  targetType: RepairTaskTargetType | string;
+  targetId: string;
+  severity: RepairTaskSeverity;
+  title: string;
+  description: string;
+  suggestion: string;
+  patch: RepairTaskPatch;
+  status: RepairTaskStatus;
+  decision: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string | null;
+}
+
+export type RepairTaskInput = Partial<RepairTask> & {
+  title: string;
+  sourceModule: RepairTaskSourceModule | string;
+  targetType: RepairTaskTargetType | string;
+  patch?: RepairTaskPatch;
+};
+
+export interface RepairTaskFilter {
+  bidProjectId?: string;
+  status?: RepairTaskStatus;
+  sourceModule?: RepairTaskSourceModule | string;
+  targetType?: RepairTaskTargetType | string;
+  targetId?: string;
+}
+
+export interface TenderFileSelectionResult {
+  success: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  fileName?: string;
+  suggestedProjectName?: string;
 }
 
 export interface VersionSummary {
@@ -227,11 +334,34 @@ export interface YibiaoBridge {
   onUpdateProgress: (callback: (event: { percent: number }) => void) => () => void;
   onUpdateDownloaded: (callback: (event: { version: string }) => void) => () => void;
   onUpdateError: (callback: (event: { message: string }) => void) => () => void;
+  projectWorkspace: {
+    list: (options?: { includeDeleted?: boolean }) => Promise<ProjectWorkspaceState>;
+    create: (input: Partial<Pick<BidProjectSummary, 'name' | 'tenderFileName' | 'status' | 'lastSection' | 'notes'>> & { tenderSourcePath?: string; password?: string }) => Promise<ProjectWorkspaceState>;
+    update: (projectId: string, patch: Partial<Pick<BidProjectSummary, 'name' | 'tenderFileName' | 'status' | 'lastSection' | 'notes'>> & { tenderSourcePath?: string; password?: string }) => Promise<ProjectWorkspaceState>;
+    select: (projectId: string, options?: { password?: string }) => Promise<ProjectWorkspaceState>;
+    delete: (projectId: string) => Promise<ProjectWorkspaceState>;
+    restore: (projectId: string) => Promise<ProjectWorkspaceState>;
+    destroy: (projectId: string) => Promise<ProjectWorkspaceState>;
+    clearCurrent: () => Promise<ProjectWorkspaceState>;
+    selectTenderFile: () => Promise<TenderFileSelectionResult>;
+    saveLastSection: (section: SectionId) => Promise<ProjectWorkspaceState>;
+  };
+  repairTasks: {
+    list: (filter?: RepairTaskFilter) => Promise<RepairTask[]>;
+    save: (input: RepairTaskInput) => Promise<RepairTask>;
+    update: (taskId: string, patch: Partial<RepairTask>) => Promise<RepairTask | null>;
+    bulkUpdateStatus: (taskIds: string[], status: RepairTaskStatus, decision?: string) => Promise<{ success: boolean; updated: number }>;
+    delete: (taskId: string) => Promise<{ success: boolean }>;
+  };
   config: {
     load: () => Promise<ClientConfig>;
     save: (config: ClientConfig) => Promise<ConfigSaveResult>;
     listModels: (config?: ClientConfig) => Promise<ModelListResult>;
     openConfigFolder: () => Promise<{ success: boolean; path: string }>;
+    listFonts: () => Promise<{ success: boolean; fontsDir: string; fonts: FontInfo[] }>;
+    openFontsFolder: () => Promise<{ success: boolean; path: string }>;
+    importFonts: () => Promise<FontImportResult>;
+    installFonts: () => Promise<FontInstallResult>;
   };
   ai: {
     chat: (request: ChatCompletionRequest) => Promise<string>;
@@ -266,6 +396,11 @@ export interface YibiaoBridge {
     saveGlobalFacts: (globalFacts: GlobalFactGroupState[]) => Promise<TechnicalPlanState>;
     saveContentGenerationOptions: (options: ContentGenerationOptions) => Promise<TechnicalPlanState>;
     saveChapterContent: (payload: { nodeId: string; content: string }) => Promise<TechnicalPlanState>;
+    listSourceAnnotations: (filter?: SourceAnnotationFilter) => Promise<SourceAnnotation[]>;
+    saveSourceAnnotation: (annotation: SourceAnnotationInput) => Promise<SourceAnnotation>;
+    approveSourceAnnotation: (annotationId: string, approvedBy?: string) => Promise<SourceAnnotation | null>;
+    rejectSourceAnnotation: (annotationId: string, approvedBy?: string) => Promise<SourceAnnotation | null>;
+    deleteSourceAnnotation: (annotationId: string) => Promise<{ success: boolean }>;
     clear: () => Promise<{ success: boolean; message?: string; state: TechnicalPlanState }>;
   };
   duplicateCheck: {
@@ -309,9 +444,15 @@ export interface YibiaoBridge {
   };
   competitiveAnalysis: {
     generate: (payload: { scoringAnalysis?: unknown; industryCode?: string; projectInfo?: unknown }) => Promise<{ success: boolean; report?: CompetitiveAnalysisReport; message?: string }>;
+    list: () => Promise<Array<ProjectAnalysisRecord<CompetitiveAnalysisReport>>>;
+    getLatest: () => Promise<ProjectAnalysisRecord<CompetitiveAnalysisReport> | null>;
+    delete: (id: string) => Promise<{ success: boolean }>;
   };
   complianceCheck: {
     check: (payload: { bidAnalysis?: unknown; technicalPlan?: unknown }) => Promise<{ success: boolean; report?: ComplianceCheckReport; message?: string }>;
+    list: () => Promise<Array<ProjectAnalysisRecord<ComplianceCheckReport>>>;
+    getLatest: () => Promise<ProjectAnalysisRecord<ComplianceCheckReport> | null>;
+    delete: (id: string) => Promise<{ success: boolean }>;
     getRules: () => Promise<Record<string, ComplianceRuleCategory>>;
   };
   privateKnowledgeBase: {
@@ -326,6 +467,14 @@ export interface YibiaoBridge {
     getStatistics: () => Promise<Record<string, { count: number; total_usage: number }>>;
     importItems: (items: Array<{ category: string; title: string; data: Record<string, unknown>; tags?: string[] }>) => Promise<{ success: number; failed: number; errors: Array<{ item: unknown; error: string }> }>;
     exportItems: (category?: string) => Promise<PrivateKnowledgeItem[]>;
+  };
+  pricing: {
+    list: () => Promise<unknown[]>;
+    get: (id: string) => Promise<unknown | null>;
+    save: (sheet: unknown) => Promise<any>;
+    delete: (id: string) => Promise<{ success: boolean }>;
+    calculate: (sheet: unknown) => Promise<unknown>;
+    exportMarkdown: (sheet: unknown) => Promise<string>;
   };
   apiServer: {
     start: (options?: { port?: number }) => Promise<{ success: boolean; status?: ApiServerStatus; error?: string }>;

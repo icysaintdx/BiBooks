@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FloatingToolbar, isLibreOfficeRequiredMessage, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
+import type { RepairTaskInput } from '../../../shared/types/ipc';
 import type { DuplicateAnalysisStatus, DuplicateAnalysisTabId, DuplicateCheckStep, DuplicateCheckTaskState, DuplicateCheckWorkspaceState, DuplicateContentAnalysisState, DuplicateImageAnalysisState, DuplicateMetadataAnalysisState, DuplicateOutlineAnalysisState, LocalFileSelection } from '../../../shared/types';
+import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
 
 const guideItems = [
   '同设备、同用户、同一个 WPS 账号、时间相近等问题，一秒锁定。',
@@ -158,6 +160,114 @@ function createDuplicateCheckSignature(files: LocalFileSelection[]) {
   }
 
   return [h0, h1, h2, h3, h4].map((value) => value.toString(16).padStart(8, '0')).join('');
+}
+
+function buildDuplicateRepairTasks(state: DuplicateCheckWorkspaceState): RepairTaskInput[] {
+  const tasks: RepairTaskInput[] = [];
+  const signature = state.metadataAnalysis?.signature
+    || state.outlineAnalysis?.signature
+    || state.contentAnalysis?.signature
+    || state.imageAnalysis?.signature
+    || 'current';
+
+  for (const file of state.metadataAnalysis?.contentFiles || []) {
+    if (file.status === 'error') {
+      tasks.push({
+        id: `duplicate-parse:${signature}:${file.file_id}`,
+        title: `查重文件解析失败：${file.file_name}`,
+        sourceModule: 'duplicate_check',
+        sourceRecordId: file.file_id,
+        targetType: 'document',
+        targetId: file.file_id,
+        severity: 'major',
+        description: file.error || '文件正文提取失败，查重结果可能不完整。',
+        suggestion: '重新选择文件，或检查 LibreOffice/WPS 转换环境后再次分析。',
+        patch: {
+          source: 'duplicate_check',
+          field: 'document_parse',
+          original: file.error || '',
+          suggested: '重新解析文件后再生成查重结论',
+          reason: 'parse_failed',
+          references: [{ type: 'file', label: file.file_name, value: file.file_id }],
+        },
+      });
+    }
+  }
+
+  const outlineGroups = state.outlineAnalysis?.duplicateGroups || [];
+  if (outlineGroups.length > 0) {
+    tasks.push({
+      id: `duplicate-outline:${signature}`,
+      title: `发现 ${outlineGroups.length} 组重复目录结构`,
+      sourceModule: 'duplicate_check',
+      sourceRecordId: signature,
+      targetType: 'document',
+      targetId: 'outline',
+      severity: outlineGroups.length >= 5 ? 'major' : 'warning',
+      description: '多份投标文件存在重复或高度相似的目录结构，可能影响差异化表达。',
+      suggestion: '进入标书查重的目录页，逐组确认是否需要调整章节结构或标题表达。',
+      patch: {
+        source: 'duplicate_check',
+        field: 'outline',
+        original: `重复目录结构 ${outlineGroups.length} 组`,
+        suggested: '调整重复章节结构或标题表达',
+        reason: 'duplicate_outline',
+        references: [{ type: 'database', label: '查重目录分析', value: signature }],
+      },
+      metadata: { count: outlineGroups.length },
+    });
+  }
+
+  const duplicateSentences = state.contentAnalysis?.duplicateSentences || [];
+  if (duplicateSentences.length > 0) {
+    tasks.push({
+      id: `duplicate-content:${signature}`,
+      title: `发现 ${duplicateSentences.length} 条重复正文句子`,
+      sourceModule: 'duplicate_check',
+      sourceRecordId: signature,
+      targetType: 'document',
+      targetId: 'content',
+      severity: duplicateSentences.length >= 20 ? 'major' : 'warning',
+      description: '正文中存在跨文件重复句子，已排除来自招标文件的引用内容。',
+      suggestion: '进入标书查重的正文页，复制重复句子并回到技术方案对应章节做改写。',
+      patch: {
+        source: 'duplicate_check',
+        field: 'content',
+        original: duplicateSentences.slice(0, 3).map((item) => item.sentence || item.normalized).filter(Boolean).join('\n'),
+        suggested: '回到对应技术章节改写重复句子',
+        reason: 'duplicate_content',
+        references: [{ type: 'database', label: '查重正文分析', value: signature }],
+        notes: `共 ${duplicateSentences.length} 条重复正文句子`,
+      },
+      metadata: { count: duplicateSentences.length },
+    });
+  }
+
+  const duplicateImages = state.imageAnalysis?.duplicateImages || [];
+  if (duplicateImages.length > 0) {
+    tasks.push({
+      id: `duplicate-image:${signature}`,
+      title: `发现 ${duplicateImages.length} 组重复图片`,
+      sourceModule: 'duplicate_check',
+      sourceRecordId: signature,
+      targetType: 'document',
+      targetId: 'image',
+      severity: 'warning',
+      description: '多份投标文件存在完全一致图片，可能需要替换或说明来源。',
+      suggestion: '进入标书查重的图片页，根据定位线索确认是否需要替换图片。',
+      patch: {
+        source: 'duplicate_check',
+        field: 'image',
+        original: `重复图片 ${duplicateImages.length} 组`,
+        suggested: '替换重复图片或补充来源说明',
+        reason: 'duplicate_image',
+        references: [{ type: 'database', label: '查重图片分析', value: signature }],
+      },
+      metadata: { count: duplicateImages.length },
+    });
+  }
+
+  return tasks;
 }
 
 function rotateLeft(value: number, bits: number) {
@@ -694,6 +804,23 @@ function DuplicateCheckPage() {
       setContentAnalysis(event.duplicateCheck.contentAnalysis);
       setImageAnalysis(event.duplicateCheck.imageAnalysis);
       setAnalysisTask(event.duplicateCheck.analysisTask);
+      const repairTasks = buildDuplicateRepairTasks(event.duplicateCheck);
+      const repairTaskApi = window.yibiao?.repairTasks;
+      if (repairTasks.length > 0 && repairTaskApi?.save) {
+        void Promise.all(repairTasks.map((task) => repairTaskApi.save(task))).catch((error) => {
+          console.warn('同步查重修复任务失败', error);
+        }).then(() => {
+          notifyRepairTasksChanged();
+        });
+      } else {
+        void markRepairTasksForReview({
+          sourceModule: 'duplicate_check',
+          targetType: 'document',
+          decision: '查重结果已更新，等待交付检查复核',
+        }).catch((error) => {
+          console.warn('更新查重修复任务失败', error);
+        });
+      }
     });
     window.yibiao?.tasks?.getActiveTasks().catch((error) => {
       console.warn('获取标书查重后台任务状态失败', error);

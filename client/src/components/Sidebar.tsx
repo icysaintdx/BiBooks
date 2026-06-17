@@ -1,19 +1,27 @@
-import * as Tooltip from '@radix-ui/react-tooltip';
+﻿import * as Tooltip from '@radix-ui/react-tooltip';
 import { useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
 import { getAppMenuItems } from '../app/menuConfig';
+import type { BidProjectSummary } from '../shared/types/ipc';
 import type { SectionId } from '../shared/types/navigation';
 import logoUrl from '../../assets/icon_256.png';
 
 interface SidebarProps {
   activeSection: SectionId;
+  currentProjectId: string;
   developerMode: boolean;
+  pendingReviewCount: number;
+  projects: BidProjectSummary[];
+  onCreateProject: (input?: { name?: string; tenderFileName?: string; notes?: string }) => void;
+  onProjectChange: (projectId: string) => void;
   onSectionChange: (section: SectionId) => void;
+  onGoToDeliveryCheck: () => void;
 }
 
 const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>> = {
+  'project-management': FolderIcon,
   'technical-plan': DocumentIcon,
   'business-bid': BriefcaseIcon,
-  'pricing': CalculatorIcon,
+  pricing: CalculatorIcon,
   'knowledge-base': ArchiveIcon,
   'private-knowledge-base': BuildingIcon,
   'duplicate-check': CompareIcon,
@@ -25,9 +33,17 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   settings: GearIcon,
 };
 
-function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps) {
+function Sidebar({ activeSection, currentProjectId, developerMode, pendingReviewCount, projects, onCreateProject, onProjectChange, onSectionChange, onGoToDeliveryCheck }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const menuItems = getAppMenuItems(developerMode);
+  const currentProject = projects.find((project) => project.id === currentProjectId) || projects[0] || null;
+  const projectLabel = currentProject?.name || '请选择投标项目';
+
+  const goDeliveryCheck = () => {
+    void window.yibiao?.technicalPlan.updateStep('delivery-check').finally(() => {
+      onGoToDeliveryCheck();
+    });
+  };
 
   return (
     <aside className={`sidebar ${collapsed ? 'is-collapsed' : ''}`}>
@@ -39,7 +55,7 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
         </div>
         <div className="brand-copy">
           <span>BiBooks</span>
-          <strong>自动标书</strong>
+          <strong>智能标书</strong>
         </div>
       </div>
 
@@ -51,6 +67,29 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
       >
         <ChevronIcon className={collapsed ? 'rotate-180' : ''} />
       </button>
+
+      <ProjectSwitcher
+        collapsed={collapsed}
+        currentProjectId={currentProjectId}
+        projectLabel={projectLabel}
+        projects={projects}
+        onCreateProject={onCreateProject}
+        onProjectChange={onProjectChange}
+      />
+
+      {currentProjectId && pendingReviewCount > 0 && activeSection !== 'project-management' && (
+        collapsed ? wrapTooltip('返回交付检查复核', (
+          <button type="button" className="review-compact-button" onClick={goDeliveryCheck} aria-label="返回交付检查复核">
+            {pendingReviewCount}
+          </button>
+        )) : (
+          <button type="button" className="review-return-card" onClick={goDeliveryCheck}>
+            <span>待复核</span>
+            <strong>{pendingReviewCount} 项修订</strong>
+            <small>返回交付检查确认</small>
+          </button>
+        )
+      )}
 
       <nav className="sidebar-nav" aria-label="主菜单">
         {menuItems.map((item) => {
@@ -83,6 +122,44 @@ function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps
         {collapsed ? wrapTooltip('设置', renderSettingsButton(activeSection, onSectionChange)) : renderSettingsButton(activeSection, onSectionChange)}
       </div>
     </aside>
+  );
+}
+
+interface ProjectSwitcherProps {
+  collapsed: boolean;
+  currentProjectId: string;
+  projectLabel: string;
+  projects: BidProjectSummary[];
+  onCreateProject: (input?: { name?: string; tenderFileName?: string; notes?: string }) => void;
+  onProjectChange: (projectId: string) => void;
+}
+
+function ProjectSwitcher({ collapsed, currentProjectId, projectLabel, projects, onCreateProject, onProjectChange }: ProjectSwitcherProps) {
+  const createProject = () => onCreateProject();
+
+  if (collapsed) {
+    return wrapTooltip(projectLabel, (
+      <button type="button" className="project-compact-button" onClick={createProject} aria-label="打开项目管理">
+        <FolderIcon />
+      </button>
+    ));
+  }
+
+  return (
+    <div className="project-switcher" aria-label="投标项目">
+      <div className="project-switcher-copy">
+        <span>当前项目</span>
+        <strong title={projectLabel}>{projectLabel}</strong>
+      </div>
+      <div className="project-switcher-controls">
+        <select value={currentProjectId || ''} onChange={(event) => onProjectChange(event.target.value)} aria-label="选择投标项目">
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+        <button type="button" className="project-add-button" onClick={createProject}>新建</button>
+      </div>
+    </div>
   );
 }
 
@@ -257,6 +334,15 @@ function GearIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+function FolderIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+      <path d="M4 6.5h6l2 2h8v9.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+      <path d="M4 8.5V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v.5" />
+    </svg>
+  );
+}
+
 function ChevronIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
@@ -266,3 +352,4 @@ function ChevronIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 export default Sidebar;
+

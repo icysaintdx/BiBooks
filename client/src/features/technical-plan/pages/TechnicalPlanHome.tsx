@@ -6,15 +6,19 @@ import OutlineEditPage from './OutlineEditPage';
 import GlobalFactsPage from './GlobalFactsPage';
 import ContentEditPage from './ContentEditPage';
 import ExpandPage from './ExpandPage';
+import DeliveryCheckPage from './DeliveryCheckPage';
+import ExportArchivePage from './ExportArchivePage';
 import VersionManagementPage from './VersionManagementPage';
 import CompetitiveAnalysisPage from './CompetitiveAnalysisPage';
 import ComplianceCheckPage from './ComplianceCheckPage';
 import CollaborationPage from './CollaborationPage';
 import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
-import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, ToolbarDocumentIcon, useToast } from '../../../shared/ui';
+import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, TechnicalPlanState, TechnicalPlanStep } from '../types';
-import type { OutlineData, OutlineItem, WordExportProgressEvent } from '../../../shared/types';
+import type { RepairTask, RepairTaskInput } from '../../../shared/types/ipc';
+import type { LayoutTemplateConfig, OutlineData, OutlineItem, WordExportProgressEvent } from '../../../shared/types';
+import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
 
 const steps: TechnicalPlanStep[] = [
   'document-analysis',
@@ -23,9 +27,11 @@ const steps: TechnicalPlanStep[] = [
   'global-facts',
   'content-edit',
   'expand',
+  'delivery-check',
+  'export-archive',
 ];
 
-const stepLabels: Record<TechnicalPlanStep, string> = {
+const stepLabels: Partial<Record<TechnicalPlanStep, string>> = {
   'document-analysis': '上传招标文件',
   'bid-analysis': '招标文件解析',
   'outline-generation': '目录生成',
@@ -58,6 +64,73 @@ const resetState = {
   scoringAnalysisTask: undefined,
 };
 
+interface ExportPricingItem {
+  category?: string;
+  name?: string;
+  specification?: string;
+  unit?: string;
+  quantity?: number;
+  unitPrice?: number;
+  subtotal?: number;
+}
+
+interface ExportPricingSheet {
+  projectName?: string;
+  taxRate?: number;
+  discountRate?: number;
+  items?: ExportPricingItem[];
+  notes?: string;
+  summary?: {
+    subtotalBeforeTax?: number;
+    discountAmount?: number;
+    taxAmount?: number;
+    totalAmount?: number;
+    totalAmountChinese?: string;
+  };
+}
+
+interface ExportCommercialTerm {
+  title?: string;
+  response?: string;
+  deviation?: string;
+}
+
+interface ExportCommercialQualification {
+  name?: string;
+  certificateNo?: string;
+  validFrom?: string;
+  validTo?: string;
+  status?: string;
+}
+
+interface ExportCommercialProject {
+  name?: string;
+  client?: string;
+  contractAmount?: number;
+  completionDate?: string;
+  description?: string;
+}
+
+interface ExportCommercialCommitment {
+  title?: string;
+  content?: string;
+}
+
+interface ExportCommercialBid {
+  projectName?: string;
+  companyName?: string;
+  priceType?: string;
+  result?: ExportCommercialBid;
+  sections?: {
+    price?: { priceType?: string };
+    terms?: { terms?: ExportCommercialTerm[] };
+    qualifications?: { qualifications?: ExportCommercialQualification[] };
+    performance?: { projects?: ExportCommercialProject[] };
+    financial?: { bankCredit?: string; creditRating?: string };
+    service?: { commitments?: ExportCommercialCommitment[] };
+  };
+}
+
 function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
   return items.flatMap((item) => item.children?.length ? collectLeafItems(item.children) : [item]);
 }
@@ -72,6 +145,245 @@ function countOutlineMermaidDiagrams(items: OutlineItem[]) {
   return collectLeafItems(items).reduce((sum, item) => sum + countMermaidDiagrams(item.content || ''), 0);
 }
 
+function cloneOutlineItems(items: OutlineItem[]): OutlineItem[] {
+  return items.map((item) => ({
+    ...item,
+    children: item.children?.length ? cloneOutlineItems(item.children) : undefined,
+  }));
+}
+
+function outlineToMarkdown(items: OutlineItem[], level = 1): string {
+  const lines: string[] = [];
+  for (const item of items) {
+    const title = `${item.id || ''} ${item.title || '未命名章节'}`.trim();
+    const headingLevel = Math.min(Math.max(level, 1), 6);
+    lines.push(`${'#'.repeat(headingLevel)} ${title}`);
+    if (item.content?.trim()) {
+      lines.push('');
+      lines.push(item.content.trim());
+    }
+    if (item.children?.length) {
+      lines.push('');
+      lines.push(outlineToMarkdown(item.children, level + 1));
+    }
+    lines.push('');
+  }
+  return lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim();
+}
+
+function markdownToProjectOutline(markdown: string): OutlineItem[] {
+  return [{
+    id: '',
+    title: '',
+    description: '导出前预览编辑层确认后的最终草稿',
+    content: markdown,
+  }];
+}
+
+function formatMoney(value: unknown) {
+  return (Number(value) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function calculatePricingSummary(sheet: ExportPricingSheet) {
+  const items = Array.isArray(sheet?.items) ? sheet.items : [];
+  const subtotalBeforeTax = items.reduce((sum: number, item: ExportPricingItem) => sum + ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)), 0);
+  const discountAmount = subtotalBeforeTax * (Number(sheet?.discountRate) || 0);
+  const afterDiscount = subtotalBeforeTax - discountAmount;
+  const taxAmount = afterDiscount * (Number(sheet?.taxRate) || 0);
+  return {
+    subtotalBeforeTax,
+    discountAmount,
+    afterDiscount,
+    taxAmount,
+    totalAmount: afterDiscount + taxAmount,
+  };
+}
+
+function buildPricingMarkdown(sheet: ExportPricingSheet) {
+  const items = Array.isArray(sheet?.items) ? sheet.items : [];
+  const summary = sheet?.summary || calculatePricingSummary(sheet);
+  const lines = [
+    '# 报价文件',
+    '',
+    '## 报价明细表',
+    '',
+    `项目名称：${sheet?.projectName || ''}`,
+    '',
+  ];
+
+  if (items.length) {
+    lines.push('| 序号 | 类别 | 名称 | 规格型号 | 单位 | 数量 | 单价（元） | 小计（元） |');
+    lines.push('| --- | --- | --- | --- | --- | ---: | ---: | ---: |');
+    items.forEach((item: ExportPricingItem, index: number) => {
+      const quantity = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unitPrice) || 0;
+      const subtotal = Number(item.subtotal) || quantity * unitPrice;
+      lines.push(`| ${index + 1} | ${item.category || ''} | ${item.name || ''} | ${item.specification || ''} | ${item.unit || ''} | ${quantity} | ${formatMoney(unitPrice)} | ${formatMoney(subtotal)} |`);
+    });
+    lines.push('');
+  }
+
+  lines.push('## 报价汇总');
+  lines.push('');
+  lines.push(`- 税前小计：${formatMoney(summary.subtotalBeforeTax)} 元`);
+  lines.push(`- 优惠金额：${formatMoney(summary.discountAmount)} 元`);
+  lines.push(`- 税额：${formatMoney(summary.taxAmount)} 元`);
+  lines.push(`- 含税合计：${formatMoney(summary.totalAmount)} 元`);
+  if (sheet?.summary?.totalAmountChinese) {
+    lines.push(`- 大写金额：${sheet.summary.totalAmountChinese}`);
+  }
+  if (sheet?.notes) {
+    lines.push('');
+    lines.push('## 报价备注');
+    lines.push('');
+    lines.push(String(sheet.notes));
+  }
+  return lines.join('\n');
+}
+
+function buildCommercialBidMarkdown(record: ExportCommercialBid) {
+  const bid = record?.result || record;
+  const sections = bid?.sections || {};
+  const price = sections.price || {};
+  const terms = Array.isArray(sections.terms?.terms) ? sections.terms.terms : [];
+  const qualifications = Array.isArray(sections.qualifications?.qualifications) ? sections.qualifications.qualifications : [];
+  const projects = Array.isArray(sections.performance?.projects) ? sections.performance.projects : [];
+  const commitments = Array.isArray(sections.service?.commitments) ? sections.service.commitments : [];
+  const financial = sections.financial || {};
+  const lines = [
+    '# 商务标',
+    '',
+    '## 商务响应概述',
+    '',
+    `项目名称：${bid?.projectName || record?.projectName || ''}`,
+    `投标单位：${bid?.companyName || record?.companyName || ''}`,
+    '',
+    '## 投标报价说明',
+    '',
+    `报价方式：${price.priceType || record?.priceType || ''}`,
+    '具体报价明细以本文件“报价文件”章节及本地报价管理模块最终核算结果为准。',
+    '',
+  ];
+
+  if (terms.length) {
+    lines.push('## 商务条款响应');
+    lines.push('');
+    lines.push('| 条款 | 响应情况 | 偏离说明 |');
+    lines.push('| --- | --- | --- |');
+    terms.forEach((term: ExportCommercialTerm) => {
+      lines.push(`| ${term.title || ''} | ${term.response || ''} | ${term.deviation || '无'} |`);
+    });
+    lines.push('');
+  }
+
+  if (qualifications.length) {
+    lines.push('## 资质证明材料');
+    lines.push('');
+    lines.push('| 资质名称 | 证书编号 | 有效期开始 | 有效期截止 | 状态 |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    qualifications.forEach((item: ExportCommercialQualification) => {
+      lines.push(`| ${item.name || ''} | ${item.certificateNo || ''} | ${item.validFrom || ''} | ${item.validTo || ''} | ${item.status || ''} |`);
+    });
+    lines.push('');
+  }
+
+  if (projects.length) {
+    lines.push('## 业绩证明材料');
+    lines.push('');
+    lines.push('| 项目名称 | 客户 | 合同金额 | 完成时间 | 说明 |');
+    lines.push('| --- | --- | ---: | --- | --- |');
+    projects.forEach((project: ExportCommercialProject) => {
+      lines.push(`| ${project.name || ''} | ${project.client || ''} | ${formatMoney(project.contractAmount)} | ${project.completionDate || ''} | ${project.description || ''} |`);
+    });
+    lines.push('');
+  }
+
+  if (financial.bankCredit || financial.creditRating) {
+    lines.push('## 财务状况');
+    lines.push('');
+    if (financial.bankCredit) lines.push(`- 银行授信：${financial.bankCredit}`);
+    if (financial.creditRating) lines.push(`- 信用评级：${financial.creditRating}`);
+    lines.push('');
+  }
+
+  if (commitments.length) {
+    lines.push('## 售后服务承诺');
+    lines.push('');
+    commitments.forEach((item: ExportCommercialCommitment, index: number) => {
+      lines.push(`${index + 1}. ${item.title || '服务承诺'}：${item.content || ''}`);
+    });
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+async function buildProjectExportOutline(outlineData: OutlineData) {
+  const warnings: string[] = [];
+  const outline: OutlineItem[] = [
+    {
+      id: '第一部分',
+      title: '技术标',
+      description: '当前项目技术方案正文',
+      children: cloneOutlineItems(outlineData.outline),
+    },
+  ];
+
+  const [commercialBids, pricingSheets] = await Promise.all([
+    window.yibiao?.commercialBid?.list?.().catch(() => []),
+    window.yibiao?.pricing?.list?.().catch(() => []),
+  ]);
+  const latestCommercialBid = Array.isArray(commercialBids) ? commercialBids[0] : null;
+  const latestPricingSheet = Array.isArray(pricingSheets) ? pricingSheets[0] : null;
+
+  if (latestCommercialBid) {
+    outline.push({
+      id: '第二部分',
+      title: '商务标',
+      description: '当前项目已保存的商务材料',
+      content: buildCommercialBidMarkdown(latestCommercialBid),
+    });
+  } else {
+    warnings.push('当前项目未找到已保存的商务材料，本次完整导出只包含技术标和已保存的报价数据。');
+  }
+
+  if (latestPricingSheet && Array.isArray((latestPricingSheet as any).items) && (latestPricingSheet as any).items.length) {
+    outline.push({
+      id: '第三部分',
+      title: '报价文件',
+      description: '本地报价管理模块核算结果',
+      content: buildPricingMarkdown(latestPricingSheet),
+    });
+  } else {
+    warnings.push('当前项目未找到有效报价明细，本次完整导出不会写入报价表。');
+  }
+
+  return { outline, warnings };
+}
+
+async function buildProjectExportPreview(outlineData: OutlineData) {
+  const projectExport = await buildProjectExportOutline(outlineData);
+  const [commercialBids, pricingSheets] = await Promise.all([
+    window.yibiao?.commercialBid?.list?.().catch(() => []),
+    window.yibiao?.pricing?.list?.().catch(() => []),
+  ]);
+  const latestCommercialBid = (Array.isArray(commercialBids) ? commercialBids[0] : null) as ExportCommercialBid | null;
+  const latestPricingSheet = Array.isArray(pricingSheets) ? pricingSheets[0] : null;
+  const bid = latestCommercialBid?.result || latestCommercialBid;
+  const missing: string[] = [];
+  if (!latestCommercialBid) missing.push('商务标');
+  if (!(latestPricingSheet && Array.isArray((latestPricingSheet as any).items) && (latestPricingSheet as any).items.length)) {
+    missing.push('报价明细');
+  }
+  return {
+    markdown: outlineToMarkdown(projectExport.outline),
+    warnings: projectExport.warnings,
+    bidderName: bid?.companyName || '',
+    canExport: missing.length === 0,
+    blockReason: missing.length ? `完整投标文件必须包含 ${missing.join('、')}。请先到对应模块补齐并保存后，再重新合成预览。` : '',
+  };
+}
+
 interface ExportProgressState {
   open: boolean;
   running: boolean;
@@ -80,6 +392,10 @@ interface ExportProgressState {
   warnings: string[];
   mermaidCount: number;
   error?: string;
+}
+
+interface TechnicalPlanHomeProps {
+  onNavigateSection?: (section: 'business-bid' | 'pricing' | 'duplicate-check' | 'compliance-check') => void;
 }
 
 const initialExportProgress: ExportProgressState = {
@@ -132,6 +448,17 @@ function updateOutlineItemContent(items: OutlineItem[], itemId: string, content:
   });
 }
 
+function findOutlineItem(items: OutlineItem[], itemId: string): OutlineItem | null {
+  for (const item of items) {
+    if (item.id === itemId) return item;
+    if (item.children?.length) {
+      const found = findOutlineItem(item.children, itemId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function resetGeneratedContent(outlineData: OutlineData): OutlineData {
   return {
     ...outlineData,
@@ -139,7 +466,61 @@ function resetGeneratedContent(outlineData: OutlineData): OutlineData {
   };
 }
 
-function TechnicalPlanHome() {
+function buildTechnicalRepairTask(item: OutlineItem, content: string): RepairTaskInput | null {
+  const text = String(content || '').trim();
+  if (!text) {
+    return {
+      id: `tech-content-empty:${item.id}`,
+      title: `正文缺失：${item.title}`,
+      sourceModule: 'technical_plan',
+      sourceRecordId: item.id,
+      targetType: 'technical_section',
+      targetId: item.id,
+      severity: 'major',
+      description: '该章节尚未形成有效正文，需要回到正文生成或扩写页面补齐。',
+      suggestion: '补充该章节正文后再返回交付检查复核。',
+      patch: {
+        source: 'technical_plan',
+        chapter: item.title,
+        sectionId: item.id,
+        original: '',
+        suggested: '补齐章节正文',
+        reason: 'empty_content',
+        references: [{ type: 'file', label: '技术方案目录', value: item.id }],
+      },
+      metadata: { reason: 'empty_content' },
+    };
+  }
+
+  if (text.length < 80 || /TODO|TBD|待补充|待完善|【待】/i.test(text)) {
+    return {
+      id: `tech-content-review:${item.id}`,
+      title: `正文需复核：${item.title}`,
+      sourceModule: 'technical_plan',
+      sourceRecordId: item.id,
+      targetType: 'technical_section',
+      targetId: item.id,
+      severity: 'warning',
+      description: '章节正文已生成，但长度偏短或含有待补充标记，建议人工复核。',
+      suggestion: '结合招标文件、来源标注和历史案例进行补充校准。',
+      patch: {
+        source: 'technical_plan',
+        chapter: item.title,
+        sectionId: item.id,
+        original: text,
+        suggested: text,
+        reason: 'review_required',
+        references: [{ type: 'file', label: '章节正文', value: item.id }],
+        notes: '正文存在待复核标记',
+      },
+      metadata: { reason: 'review_required', length: text.length },
+    };
+  }
+
+  return null;
+}
+
+function TechnicalPlanHome({ onNavigateSection }: TechnicalPlanHomeProps) {
   const { hydrated, state, setState } = useTechnicalPlanWorkflow();
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
@@ -148,6 +529,17 @@ function TechnicalPlanHome() {
   const [competitiveDialogOpen, setCompetitiveDialogOpen] = useState(false);
   const [complianceDialogOpen, setComplianceDialogOpen] = useState(false);
   const [collaborationDialogOpen, setCollaborationDialogOpen] = useState(false);
+  const [sourceAnnotations, setSourceAnnotations] = useState<any[]>([]);
+  const [sourceAnnotationsLoading, setSourceAnnotationsLoading] = useState(false);
+  const [repairTasks, setRepairTasks] = useState<RepairTask[]>([]);
+  const [repairTasksLoading, setRepairTasksLoading] = useState(false);
+  const [projectPreviewMarkdown, setProjectPreviewMarkdown] = useState('');
+  const [projectPreviewWarnings, setProjectPreviewWarnings] = useState<string[]>([]);
+  const [projectPreviewBidderName, setProjectPreviewBidderName] = useState('');
+  const [projectPreviewCanExport, setProjectPreviewCanExport] = useState(false);
+  const [projectPreviewBlockReason, setProjectPreviewBlockReason] = useState('');
+  const [projectPreviewLoading, setProjectPreviewLoading] = useState(false);
+  const [layoutTemplate, setLayoutTemplate] = useState<LayoutTemplateConfig | null>(null);
   const activeIndex = steps.indexOf(state.step);
   const bidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
@@ -185,6 +577,20 @@ function TechnicalPlanHome() {
       switchStep(nextStep);
     }
   };
+
+  useEffect(() => {
+    let mounted = true;
+    window.yibiao?.config.load()
+      .then((config) => {
+        if (mounted) setLayoutTemplate(config?.layout_template || null);
+      })
+      .catch(() => {
+        if (mounted) setLayoutTemplate(null);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!window.yibiao?.tasks) {
@@ -331,14 +737,144 @@ function TechnicalPlanHome() {
     };
   }, [showToast, state.step, state.tenderFile]);
 
-  const exportWord = async () => {
+  useEffect(() => {
+    if (state.step !== 'delivery-check' || !window.yibiao?.technicalPlan.listSourceAnnotations) {
+      return;
+    }
+    setSourceAnnotationsLoading(true);
+    window.yibiao.technicalPlan.listSourceAnnotations()
+      .then((items) => setSourceAnnotations(items || []))
+      .catch((error) => showToast(error instanceof Error ? error.message : '读取来源标注失败', 'error'))
+      .finally(() => setSourceAnnotationsLoading(false));
+  }, [showToast, state.step]);
+
+  useEffect(() => {
+    if (state.step !== 'delivery-check' || !window.yibiao?.repairTasks?.list) {
+      return;
+    }
+    setRepairTasksLoading(true);
+    window.yibiao.repairTasks.list()
+      .then((items) => setRepairTasks(items || []))
+      .catch((error) => showToast(error instanceof Error ? error.message : '读取修复任务失败', 'error'))
+      .finally(() => setRepairTasksLoading(false));
+  }, [showToast, state.step]);
+
+  useEffect(() => {
+    if (state.step !== 'export-archive' || !state.outlineData?.outline?.length) {
+      return;
+    }
+    let mounted = true;
+    setProjectPreviewLoading(true);
+    buildProjectExportPreview(state.outlineData)
+      .then((result) => {
+        if (!mounted) return;
+        setProjectPreviewMarkdown(result.markdown);
+        setProjectPreviewWarnings(result.warnings);
+        setProjectPreviewBidderName(result.bidderName);
+        setProjectPreviewCanExport(result.canExport);
+        setProjectPreviewBlockReason(result.blockReason);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        showToast(error instanceof Error ? error.message : '生成合并预览失败', 'error');
+      })
+      .finally(() => {
+        if (mounted) setProjectPreviewLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [showToast, state.outlineData, state.step]);
+
+  const createRepairTask = async (task: Partial<RepairTask> & Pick<RepairTask, 'title' | 'sourceModule' | 'targetType'>) => {
+    const created = await window.yibiao?.repairTasks.save(task);
+    if (created) {
+      setRepairTasks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+      notifyRepairTasksChanged();
+    }
+  };
+
+  const updateRepairTask = async (taskId: string, patch: Partial<RepairTask>) => {
+    const updated = await window.yibiao?.repairTasks.update(taskId, patch);
+    if (updated) {
+      setRepairTasks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      notifyRepairTasksChanged();
+    }
+  };
+
+  const bulkUpdateRepairTasks = async (taskIds: string[], status: RepairTask['status'], decision?: string) => {
+    const api = window.yibiao?.repairTasks;
+    if (!api?.bulkUpdateStatus) return;
+    const result = await api.bulkUpdateStatus(taskIds, status, decision || '');
+    if (result?.success) {
+      setRepairTasks((prev) => prev.map((item) => (taskIds.includes(item.id) ? { ...item, status, decision: decision || item.decision } : item)));
+      notifyRepairTasksChanged();
+    }
+  };
+
+  const applyRepairTaskToContent = async (task: RepairTask) => {
+    if (!state.outlineData?.outline?.length || task.sourceModule !== 'technical_plan' || task.targetType !== 'technical_section') {
+      return;
+    }
+    const content = task.patch?.suggested?.trim();
+    if (!content) {
+      showToast('该修订建议没有可应用的建议稿', 'info');
+      return;
+    }
+    const item = findOutlineItem(state.outlineData.outline, task.targetId);
+    if (!item) {
+      showToast('未找到对应技术章节，无法自动应用', 'error');
+      return;
+    }
+
+    await saveChapterContent(item, content);
+    const updated = await window.yibiao?.repairTasks.update(task.id, {
+      status: 'fixed',
+      decision: '已自动应用到技术正文',
+    });
+    if (updated) {
+      setRepairTasks((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
+      notifyRepairTasksChanged();
+    }
+    showToast('修订建议已应用到技术正文', 'success');
+  };
+
+  const exportWord = async (scope: 'technical' | 'project' = 'technical', previewMarkdown = '') => {
     if (!state.outlineData?.outline?.length) {
       showToast('请先生成目录', 'info');
       return;
     }
 
+    if (scope === 'project') {
+      const [commercialBids, pricingSheets] = await Promise.all([
+        window.yibiao?.commercialBid?.list?.().catch(() => []),
+        window.yibiao?.pricing?.list?.().catch(() => []),
+      ]);
+      const hasCommercialBid = Array.isArray(commercialBids) && commercialBids.length > 0;
+      const hasPricingSheet = Array.isArray(pricingSheets) && pricingSheets.some((sheet) => Array.isArray((sheet as any)?.items) && (sheet as any).items.length);
+      if (!hasCommercialBid || !hasPricingSheet) {
+        const missing: string[] = [];
+        if (!hasCommercialBid) missing.push('商务标');
+        if (!hasPricingSheet) missing.push('报价明细');
+        showToast(`完整投标文件必须先补齐 ${missing.join('、')} 后才能导出`, 'error');
+        return;
+      }
+    }
+
     const requestId = `export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const mermaidCount = countOutlineMermaidDiagrams(state.outlineData.outline);
+    let exportOutline = state.outlineData.outline;
+    const projectWarnings: string[] = [];
+    if (scope === 'project') {
+      if (previewMarkdown.trim()) {
+        exportOutline = markdownToProjectOutline(previewMarkdown.trim());
+        projectWarnings.push(...projectPreviewWarnings);
+      } else {
+        const projectExport = await buildProjectExportOutline(state.outlineData);
+        exportOutline = projectExport.outline;
+        projectWarnings.push(...projectExport.warnings);
+      }
+    }
+    const mermaidCount = countOutlineMermaidDiagrams(exportOutline);
     let unsubscribe: (() => void) | undefined;
 
     try {
@@ -348,8 +884,10 @@ function TechnicalPlanHome() {
         progress: 2,
         message: mermaidCount
           ? `检测到 ${mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片，可能需要稍等。`
-          : '正在准备导出 Word。',
-        warnings: [],
+          : scope === 'project'
+            ? '正在合成项目级完整标书 Word。'
+            : '正在准备导出 Word。',
+        warnings: projectWarnings,
         mermaidCount,
       });
 
@@ -372,7 +910,8 @@ function TechnicalPlanHome() {
       const result = await window.yibiao?.export.exportWord({
         requestId,
         project_name: state.outlineData.project_name,
-        outline: state.outlineData.outline,
+        doc_type: scope === 'project' ? '完整投标文件' : '技术标',
+        outline: exportOutline,
       });
       if (result?.canceled) {
         setExportProgress(initialExportProgress);
@@ -385,7 +924,7 @@ function TechnicalPlanHome() {
         running: false,
         progress: 100,
         message: result?.message || 'Word 已导出，请打开文档核对图片、表格和版式。',
-        warnings: result?.warnings || prev.warnings,
+        warnings: [...projectWarnings, ...(result?.warnings || [])],
       }));
       showToast(result?.message || 'Word 已导出', result?.warnings?.length ? 'info' : 'success');
     } catch (error) {
@@ -402,6 +941,32 @@ function TechnicalPlanHome() {
     } finally {
       unsubscribe?.();
     }
+  };
+
+  const refreshProjectPreview = async () => {
+    if (!state.outlineData?.outline?.length) {
+      showToast('请先生成技术正文目录', 'info');
+      return;
+    }
+
+    setProjectPreviewLoading(true);
+    try {
+      const result = await buildProjectExportPreview(state.outlineData);
+      setProjectPreviewMarkdown(result.markdown);
+      setProjectPreviewWarnings(result.warnings);
+      setProjectPreviewBidderName(result.bidderName);
+      setProjectPreviewCanExport(result.canExport);
+      setProjectPreviewBlockReason(result.blockReason);
+      showToast('合并预览已刷新', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '刷新合并预览失败', 'error');
+    } finally {
+      setProjectPreviewLoading(false);
+    }
+  };
+
+  const saveProjectPreviewDraft = (previewMarkdown: string) => {
+    setProjectPreviewMarkdown(previewMarkdown);
   };
 
   const saveChapterContent = async (item: OutlineItem, content: string) => {
@@ -431,6 +996,18 @@ function TechnicalPlanHome() {
     }));
     const saved = await window.yibiao?.technicalPlan.saveChapterContent({ nodeId: item.id, content });
     if (saved) setState((prev) => ({ ...prev, ...saved }));
+    const repairTask = buildTechnicalRepairTask(item, content);
+    if (repairTask && window.yibiao?.repairTasks?.save) {
+      await window.yibiao.repairTasks.save(repairTask);
+      notifyRepairTasksChanged();
+    } else {
+      await markRepairTasksForReview({
+        sourceModule: 'technical_plan',
+        targetType: 'technical_section',
+        targetId: item.id,
+        decision: '章节正文已保存，等待交付检查复核',
+      });
+    }
   };
 
   const resetTechnicalPlan = async () => {
@@ -471,15 +1048,6 @@ function TechnicalPlanHome() {
         disabled: activeIndex <= 0,
         tooltip: activeIndex <= 0 ? '当前已经是第一步' : `返回${stepLabels[steps[activeIndex - 1]]}`,
         onClick: () => goToOffset(-1),
-      },
-      {
-        id: 'export-word',
-        label: isExporting ? '导出中...' : '导出 Word',
-        icon: <ToolbarDocumentIcon />,
-        variant: 'primary' as const,
-        disabled: isContentGenerating || isExporting || !state.outlineData,
-        tooltip: isContentGenerating ? '正文生成或暂停处理中，完成暂停后再导出' : isExporting ? 'Word 正在导出，请稍候' : isContentPaused ? '正文生成已暂停，可导出当前已完成内容' : generatedContentCount ? '导出当前技术方案正文' : '可导出空目录文档，建议先生成正文',
-        onClick: exportWord,
       },
       {
         id: 'continue-expand',
@@ -570,6 +1138,7 @@ function TechnicalPlanHome() {
         <DocumentAnalysisPage
           tenderFile={state.tenderFile}
           tenderMarkdown={tenderMarkdown}
+          parseQuality={state.tenderParseQuality}
           onFileImported={(nextState, markdown) => {
             setState((prev) => ({ ...prev, ...nextState }));
             setTenderMarkdown(markdown);
@@ -663,6 +1232,45 @@ function TechnicalPlanHome() {
           contentGenerationOptions={state.contentGenerationOptions}
           sections={state.contentGenerationSections}
           onContentSaved={saveChapterContent}
+        />
+      )}
+      {state.step === 'delivery-check' && (
+        <DeliveryCheckPage
+          outlineData={state.outlineData}
+          bidAnalysisTasks={state.bidAnalysisTasks}
+          sourceAnnotations={sourceAnnotations}
+          sourceAnnotationsLoading={sourceAnnotationsLoading}
+          repairTasks={repairTasks}
+          repairTasksLoading={repairTasksLoading}
+          onGoToContent={() => switchStep('content-edit')}
+          onGoToExport={() => switchStep('export-archive')}
+          onGoToPricing={() => onNavigateSection?.('pricing')}
+          onGoToCommercialBid={() => onNavigateSection?.('business-bid')}
+          onGoToDuplicateCheck={() => onNavigateSection?.('duplicate-check')}
+          onGoToComplianceCheck={() => onNavigateSection?.('compliance-check')}
+          onCreateRepairTask={createRepairTask}
+          onUpdateRepairTask={updateRepairTask}
+          onApplyRepairTask={applyRepairTaskToContent}
+          onBulkUpdateRepairTasks={bulkUpdateRepairTasks}
+        />
+      )}
+      {state.step === 'export-archive' && (
+        <ExportArchivePage
+          outlineData={state.outlineData}
+          exporting={isExporting}
+          generatedContentCount={generatedContentCount}
+          exportBlocked={!projectPreviewCanExport}
+          exportBlockReason={projectPreviewBlockReason}
+          bidderName={projectPreviewBidderName}
+          previewMarkdown={projectPreviewMarkdown}
+          previewWarnings={projectPreviewWarnings}
+          previewLoading={projectPreviewLoading}
+          layoutTemplate={layoutTemplate}
+          onRefreshPreview={refreshProjectPreview}
+          onSavePreviewDraft={saveProjectPreviewDraft}
+          onExportWord={(previewMarkdown) => void exportWord('project', previewMarkdown)}
+          onOpenVersions={() => setVersionDialogOpen(true)}
+          onBackToCheck={() => switchStep('delivery-check')}
         />
       )}
 

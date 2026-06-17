@@ -83,7 +83,7 @@ function createEmptyParagraph(lineCount = 1) {
     spacing: {
       before: 0,
       after: 0,
-      line: 360,
+      line: 220,
     },
     children: [
       new TextRun({
@@ -113,6 +113,12 @@ function generateCoverContent(options = {}) {
     date = '',
     formatStandard = 'government',
     docType = '技术标',
+    title = '',
+    subtitle = '',
+    bidderLabel = '投标单位',
+    tendererLabel = '招标单位',
+    dateLabel = '日期',
+    showLogoPlaceholder = false,
   } = options;
 
   const config = FORMAT_CONFIGS[formatStandard] || FORMAT_CONFIGS.government;
@@ -125,23 +131,24 @@ function generateCoverContent(options = {}) {
   const paragraphs = [];
 
   // 顶部空行
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 4; i++) {
     paragraphs.push(createEmptyParagraph());
   }
 
-  // 公司LOGO占位符
-  paragraphs.push(
-    createCenterParagraph(
-      '[公司LOGO]',
-      config.labelFont,
-      14,
-      false,
-      { before: 0, after: 200, line: 360 }
-    )
-  );
+  if (showLogoPlaceholder) {
+    paragraphs.push(
+      createCenterParagraph(
+        '[公司LOGO]',
+        config.labelFont,
+        14,
+        false,
+        { before: 0, after: 200, line: 360 }
+      )
+    );
+  }
 
   // 空行
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     paragraphs.push(createEmptyParagraph());
   }
 
@@ -149,7 +156,7 @@ function generateCoverContent(options = {}) {
   if (tendererName) {
     paragraphs.push(
       createCenterParagraph(
-        tendererName,
+        `${tendererLabel}：${tendererName}`,
         config.bodyFont,
         config.bodySize,
         false,
@@ -162,7 +169,7 @@ function generateCoverContent(options = {}) {
   // 项目名称
   paragraphs.push(
     createCenterParagraph(
-      projectName,
+      title || projectName,
       config.titleFont,
       config.titleSize,
       true,
@@ -176,7 +183,7 @@ function generateCoverContent(options = {}) {
   // 文档类型（技术标/投标文件）
   paragraphs.push(
     createCenterParagraph(
-      docType,
+      subtitle || docType,
       config.subtitleFont,
       config.subtitleSize,
       true,
@@ -185,7 +192,7 @@ function generateCoverContent(options = {}) {
   );
 
   // 空行
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 4; i++) {
     paragraphs.push(createEmptyParagraph());
   }
 
@@ -193,7 +200,7 @@ function generateCoverContent(options = {}) {
   if (bidderName) {
     paragraphs.push(
       createCenterParagraph(
-        `投标单位：${bidderName}`,
+        `${bidderLabel}：${bidderName}`,
         config.bodyFont,
         config.bodySize,
         false,
@@ -206,7 +213,7 @@ function generateCoverContent(options = {}) {
   // 日期
   paragraphs.push(
     createCenterParagraph(
-      currentDate,
+      `${dateLabel}：${currentDate}`,
       config.bodyFont,
       config.bodySize,
       false,
@@ -215,7 +222,7 @@ function generateCoverContent(options = {}) {
   );
 
   // 底部空行
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 1; i++) {
     paragraphs.push(createEmptyParagraph());
   }
 

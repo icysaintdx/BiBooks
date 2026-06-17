@@ -292,7 +292,46 @@ function generateBidCalendar(opportunities) {
   // 按日期排序
   events.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  return events;
+  const monthMap = new Map();
+  for (const event of events) {
+    const date = new Date(event.date);
+    const month = Number.isNaN(date.getTime())
+      ? '未确定日期'
+      : `${date.getFullYear()}年${String(date.getMonth() + 1).padStart(2, '0')}月`;
+    if (!monthMap.has(month)) {
+      monthMap.set(month, { month, events: [] });
+    }
+    monthMap.get(month).events.push({
+      date: event.date,
+      type: event.type,
+      status: event.status,
+      projectName: event.title || event.projectName,
+      description: event.client ? `客户：${event.client}` : '',
+      budget: event.budget || 0,
+    });
+  }
+
+  const today = new Date();
+  const upcomingDeadlines = events
+    .filter((event) => event.type === 'deadline')
+    .map((event) => {
+      const date = new Date(event.date);
+      const daysLeft = Number.isNaN(date.getTime())
+        ? null
+        : Math.ceil((date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+      return {
+        projectName: event.title || event.projectName,
+        deadline: event.date,
+        daysLeft,
+      };
+    })
+    .filter((item) => item.daysLeft !== null && item.daysLeft >= 0 && item.daysLeft <= 30);
+
+  return {
+    months: Array.from(monthMap.values()),
+    upcomingDeadlines,
+    events,
+  };
 }
 
 /**

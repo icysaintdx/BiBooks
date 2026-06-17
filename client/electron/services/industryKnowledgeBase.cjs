@@ -123,6 +123,38 @@ const INDUSTRY_KNOWLEDGE = {
     ],
     keyMetrics: ['项目周期', '交付物数量', '满意度', '后续支持'],
   },
+  operation_service: {
+    scoringWeights: { servicePlan: 35, team: 20, sla: 20, emergency: 15, qualification: 10 },
+    commonPitfalls: [
+      '服务范围和服务边界不清晰',
+      '响应时限、解决时限没有依据或前后不一致',
+      '驻场人员、备件和工具配置缺少支撑',
+      '故障闭环、升级和复盘机制不完整',
+    ],
+    writingTips: [
+      '运维服务要围绕服务目录、服务流程和服务边界展开',
+      'SLA 指标只能引用招标文件、企业制度或人工确认值',
+      '巡检、故障、变更、应急要形成闭环记录',
+      '人员配置要明确岗位职责、到场方式和沟通机制',
+    ],
+    keyMetrics: ['响应时限', '解决时限', '巡检频次', '故障恢复时间', '服务可用性'], 
+  },
+  government_procurement: {
+    scoringWeights: { requirementResponse: 35, implementation: 20, service: 20, compliance: 15, qualification: 10 },
+    commonPitfalls: [
+      '采购需求未逐项响应或响应依据不足',
+      '把政策性要求写成未经确认的承诺',
+      '偏离表、验收标准和服务边界不一致',
+      '中小企业、节能环保、国产化等政策响应缺少材料支撑',
+    ],
+    writingTips: [
+      '优先按采购需求和评分办法逐项响应',
+      '政策响应必须以招标文件、企业资料或人工确认为依据',
+      '实施、验收、售后和风险控制要和合同履约边界一致',
+      '正式正文不写内部来源标注，但项目内必须保留来源记录',
+    ],
+    keyMetrics: ['需求响应完整率', '履约进度', '验收通过率', '服务响应时限', '合规材料完整性'], 
+  },
   general: {
     scoringWeights: { techSolution: 35, implementation: 25, qualification: 20, price: 10, service: 10 },
     commonPitfalls: [

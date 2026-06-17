@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isLibreOfficeRequiredMessage, MarkdownRenderer, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { FileParserProvider } from '../../../shared/types';
-import type { TechnicalPlanState, TechnicalPlanTenderFile } from '../types';
+import type { TechnicalPlanState, TechnicalPlanTenderFile, TenderParseQuality } from '../types';
 
 const parserLabels: Record<FileParserProvider, string> = {
   local: '本地解析',
@@ -15,12 +15,47 @@ const parserLabels: Record<FileParserProvider, string> = {
 interface DocumentAnalysisPageProps {
   tenderFile: TechnicalPlanTenderFile | null;
   tenderMarkdown: string;
+  parseQuality?: TenderParseQuality;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
+}
+
+function formatPercent(value: number | undefined) {
+  return `${Math.round(Number(value || 0) * 100)}%`; 
+}
+
+function ParseQualityPanel({ quality }: { quality: TenderParseQuality }) {
+  const hasWarnings = quality.warnings?.length > 0;
+  return (
+    <aside className={`parse-quality-panel${hasWarnings ? ' has-warnings' : ''}`} aria-label="解析质量检查">
+      <div className="parse-quality-head">
+        <div>
+          <span className="section-kicker">解析质量</span>
+          <strong>{quality.summary}</strong>
+        </div>
+        <span>{hasWarnings ? `${quality.warnings.length} 条提示` : '未见明显风险'}</span>
+      </div>
+      <div className="parse-quality-metrics">
+        <span>表格 <strong>{quality.tableCount}</strong></span>
+        <span>表格行 <strong>{quality.tableRowCount}</strong></span>
+        <span>图片 <strong>{quality.imageCount}</strong></span>
+        <span>标题 <strong>{quality.headingCount}</strong></span>
+        <span>中文占比 <strong>{formatPercent(quality.chineseCharRatio)}</strong></span>
+      </div>
+      {hasWarnings && (
+        <div className="parse-quality-warnings">
+          {quality.warnings.map((warning) => (
+            <p className={`is-${warning.level}`} key={`${warning.code}-${warning.message}`}>{warning.message}</p>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
 }
 
 function DocumentAnalysisPage({
   tenderFile,
   tenderMarkdown,
+  parseQuality,
   onFileImported,
 }: DocumentAnalysisPageProps) {
   const [parserLabel, setParserLabel] = useState(parserLabels.local);
@@ -105,6 +140,10 @@ function DocumentAnalysisPage({
           <strong>招标文件内容</strong>
           <span>{tenderFile ? `${tenderFile.fileName} · ${tenderFile.markdownChars} 字` : '等待上传'}</span>
         </div>
+
+        {parseQuality && (
+          <ParseQualityPanel quality={parseQuality} />
+        )}
 
         {tenderMarkdown ? (
           <div className="markdown-viewer">

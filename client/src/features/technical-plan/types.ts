@@ -1,12 +1,50 @@
 import type { OutlineData, OutlineMode } from '../../shared/types';
 
-export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand';
+export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand' | 'delivery-check' | 'export-archive';
 export type BidAnalysisMode = 'key' | 'full';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
 export type BackgroundTaskType = 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation' | 'scoring-analysis';
 export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' | 'error';
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error';
 export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
+export type SourceAnnotationType = 'tender_file' | 'database' | 'case_history' | 'knowledge_base' | 'private_kb' | 'web' | 'manual' | 'ai_generated';
+export type SourceApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type SourceRiskLevel = 'low' | 'medium' | 'high';
+
+export interface SourceAnnotation {
+  annotationId: string;
+  projectScope: string;
+  targetType: string;
+  targetId: string;
+  sourceType: SourceAnnotationType;
+  sourceTitle: string;
+  sourceRef: string;
+  excerpt: string;
+  claim: string;
+  riskLevel: SourceRiskLevel;
+  requiresApproval: boolean;
+  approvalStatus: SourceApprovalStatus;
+  approvedBy: string;
+  approvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SourceAnnotationInput = Partial<SourceAnnotation> & {
+  annotationId?: string;
+  projectScope?: string;
+  targetType?: string;
+  targetId?: string;
+  sourceType?: SourceAnnotationType;
+};
+
+export interface SourceAnnotationFilter {
+  projectScope?: string;
+  targetType?: string;
+  targetId?: string;
+  sourceType?: SourceAnnotationType;
+  approvalStatus?: SourceApprovalStatus;
+}
 
 export interface ContentGenerationOptions {
   useAiImages: boolean;
@@ -157,6 +195,29 @@ export interface TechnicalPlanTenderFile {
   updatedAt: string;
 }
 
+export interface ParseQualityWarning {
+  level: 'low' | 'medium' | 'high';
+  code: string;
+  message: string;
+}
+
+export interface TenderParseQuality {
+  chars: number;
+  nonWhitespaceChars: number;
+  chineseCharRatio: number;
+  headingCount: number;
+  tableCount: number;
+  tableRowCount: number;
+  tableMaxColumns: number;
+  pipeLineCount: number;
+  orphanPipeLineCount: number;
+  imageCount: number;
+  suspectedMojibakeCount: number;
+  warnings: ParseQualityWarning[];
+  summary: string;
+  checkedAt: string;
+}
+
 export interface ScoringSubItem {
   name: string;
   score: number;
@@ -204,6 +265,7 @@ export interface TechnicalPlanState {
   outlineData: OutlineData | null;
   scoringAnalysis?: ScoringAnalysisResult;
   scoringAnalysisTask?: BackgroundTaskState;
+  tenderParseQuality?: TenderParseQuality;
   industryCode?: string;
   industryName?: string;
   industryConfidence?: number;

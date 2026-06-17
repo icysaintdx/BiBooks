@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
-import type { ApiServerStatus, ClientConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider } from '../../../shared/types';
+import type { ApiServerStatus, ClientConfig, FileParserProvider, FontInfo, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, LayoutTemplateConfig, TextModelConfig, TextModelProfiles, TextModelProvider } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 
-type SettingsTab = 'general' | 'text-model' | 'image-model' | 'file-parser' | 'api-server' | 'about';
+type SettingsTab = 'general' | 'layout-template' | 'text-model' | 'image-model' | 'file-parser' | 'api-server' | 'about';
 type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error' | 'disabled';
 
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: '通用' },
+  { id: 'layout-template', label: '版式模板' },
   { id: 'text-model', label: '文本模型' },
   { id: 'image-model', label: '生图模型' },
   { id: 'file-parser', label: '文件解析' },
@@ -231,6 +232,135 @@ const imageStatusMeta: Record<ImageModelStatus, { label: string; description: st
   },
 };
 
+const defaultLayoutTemplate: LayoutTemplateConfig = {
+  id: 'standard-bid-a4',
+  name: '标准投标文件 A4',
+  industry: '通用',
+  page: {
+    size: 'A4',
+    margin_top_mm: 25,
+    margin_bottom_mm: 25,
+    margin_left_mm: 28,
+    margin_right_mm: 25,
+    gutter_mm: 0,
+  },
+  header: {
+    enabled: true,
+    text: '{项目名称}',
+    logo_path: '',
+  },
+  footer: {
+    enabled: true,
+    text: '{投标单位}',
+    page_number_format: '第 {page} 页 / 共 {pages} 页',
+  },
+  cover: {
+    title: '{项目名称}',
+    subtitle: '投标文件',
+    bidder_label: '投标单位',
+    tenderer_label: '招标单位',
+    date_label: '日期',
+    show_logo_placeholder: false,
+    logo_path: '',
+  },
+  toc: {
+    show_page_numbers: true,
+    page_number_format: '第 {page} 页 / 共 {pages} 页',
+    leader: 'dot',
+    max_level: 3,
+  },
+  preview: {
+    show_guides: true,
+    show_rulers: true,
+  },
+  typography: {
+    body_font: '宋体',
+    body_size_pt: 12,
+    line_spacing: 1.5,
+    first_line_indent_chars: 2,
+  },
+  headings: [
+    { level: 1, font: '黑体', size_pt: 22, bold: true, alignment: 'center', numbering: '一、' },
+    { level: 2, font: '黑体', size_pt: 16, bold: true, alignment: 'left', numbering: '（一）' },
+    { level: 3, font: '黑体', size_pt: 14, bold: true, alignment: 'left', numbering: '1.' },
+    { level: 4, font: '宋体', size_pt: 12, bold: true, alignment: 'left', numbering: '（1）' },
+  ],
+  tables: {
+    header_fill: 'F1F6FF',
+    border_color: 'DCDFF6',
+    repeat_header: true,
+    allow_page_break: true,
+  },
+  images: {
+    max_width_percent: 92,
+    align: 'center',
+    caption_enabled: true,
+  },
+};
+
+function normalizeLayoutTemplate(template?: Partial<LayoutTemplateConfig>): LayoutTemplateConfig {
+  const source = template || {};
+  return {
+    ...defaultLayoutTemplate,
+    ...source,
+    page: { ...defaultLayoutTemplate.page, ...source.page },
+    header: { ...defaultLayoutTemplate.header, ...source.header },
+    footer: { ...defaultLayoutTemplate.footer, ...source.footer },
+    cover: { ...defaultLayoutTemplate.cover, ...source.cover },
+    toc: { ...defaultLayoutTemplate.toc, ...source.toc },
+    preview: { ...defaultLayoutTemplate.preview, ...source.preview },
+    typography: { ...defaultLayoutTemplate.typography, ...source.typography },
+    headings: (source.headings?.length ? source.headings : defaultLayoutTemplate.headings).map((heading: LayoutTemplateConfig['headings'][number], index: number) => ({
+      ...defaultLayoutTemplate.headings[Math.min(index, defaultLayoutTemplate.headings.length - 1)],
+      ...heading,
+    })),
+    tables: { ...defaultLayoutTemplate.tables, ...source.tables },
+    images: { ...defaultLayoutTemplate.images, ...source.images },
+  };
+}
+
+function createLayoutTemplateId(name = 'layout-template') {
+  return `${name || 'layout-template'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    .replace(/[^\w-]+/g, '-')
+    .toLowerCase();
+}
+
+function LayoutField({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="layout-field">
+      <span className="layout-field-label">{label}</span>
+      {children}
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+}
+
+function LayoutCheckField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="layout-field layout-check-field">
+      <span className="layout-field-label">{label}</span>
+      <span className="inline-check">
+        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+        <span>{checked ? '启用' : '关闭'}</span>
+      </span>
+    </label>
+  );
+}
+
+function updateLayoutTemplateField<TGroup extends keyof LayoutTemplateConfig>(
+  template: LayoutTemplateConfig,
+  group: TGroup,
+  patch: Partial<LayoutTemplateConfig[TGroup]>,
+): LayoutTemplateConfig {
+  return {
+    ...template,
+    [group]: {
+      ...(template[group] as Record<string, unknown>),
+      ...patch,
+    },
+  };
+}
+
 function resetImageModelStatus(imageModel: ImageModelConfig): ImageModelConfig {
   return {
     ...imageModel,
@@ -363,6 +493,8 @@ const initialState: SettingsPageState = {
     provider: 'local',
     mineru_token: '',
   },
+  layoutTemplate: defaultLayoutTemplate,
+  layoutTemplates: [defaultLayoutTemplate],
   general: {
     developer_mode: false,
   },
@@ -399,10 +531,14 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [envChecking, setEnvChecking] = useState(false);
   const [envInstalling, setEnvInstalling] = useState(false);
   const [envInstallLog, setEnvInstallLog] = useState<string[]>([]);
+  const [fontInfos, setFontInfos] = useState<FontInfo[]>([]);
+  const [fontsDir, setFontsDir] = useState('');
+  const [fontBusy, setFontBusy] = useState<'scan' | 'import' | 'install' | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
     void loadTextConfig();
+    void loadFonts();
     void loadApiServerStatus();
     void window.yibiao?.getVersion().then(setAppVersion);
 
@@ -443,6 +579,8 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       const imageModelProfiles = normalizeImageModelProfiles(config.image_model_profiles);
       const activeImageProfile = normalizeImageModelProfile(config.image_model.provider, config.image_model);
       imageModelProfiles[activeImageProfile.provider] = activeImageProfile;
+      const layoutTemplates = (config.layout_templates?.length ? config.layout_templates : [config.layout_template]).map(normalizeLayoutTemplate);
+      const layoutTemplate = normalizeLayoutTemplate(config.layout_template || layoutTemplates[0]);
 
       setState((prev) => ({
         ...prev,
@@ -457,6 +595,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           provider: config.file_parser.provider,
           mineru_token: config.file_parser.mineru_token || '',
         },
+        layoutTemplate,
+        layoutTemplates: layoutTemplates.some((template) => template.id === layoutTemplate.id)
+          ? layoutTemplates
+          : [layoutTemplate, ...layoutTemplates],
         general: {
           developer_mode: Boolean(config.developer_mode),
         },
@@ -497,6 +639,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         provider: state.fileParser.provider,
         mineru_token: state.fileParser.mineru_token || '',
       },
+      layout_template: state.layoutTemplate,
+      layout_templates: state.layoutTemplates.some((template) => template.id === state.layoutTemplate.id)
+        ? state.layoutTemplates.map((template) => template.id === state.layoutTemplate.id ? state.layoutTemplate : template)
+        : [state.layoutTemplate, ...state.layoutTemplates],
       developer_mode: state.general.developer_mode,
     };
   };
@@ -606,6 +752,75 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       general: { ...prev.general, developer_mode: developerMode },
     }));
     onDeveloperModeChange?.(developerMode);
+  };
+
+  const updateLayoutTemplate = (nextTemplate: LayoutTemplateConfig) => {
+    const normalized = normalizeLayoutTemplate(nextTemplate);
+    setState((prev) => ({
+      ...prev,
+      layoutTemplate: normalized,
+      layoutTemplates: prev.layoutTemplates.some((template) => template.id === normalized.id)
+        ? prev.layoutTemplates.map((template) => template.id === normalized.id ? normalized : template)
+        : [normalized, ...prev.layoutTemplates],
+    }));
+  };
+
+  const patchLayoutTemplate = (patch: Partial<LayoutTemplateConfig>) => {
+    updateLayoutTemplate({ ...state.layoutTemplate, ...patch });
+  };
+
+  const patchLayoutTemplateGroup = <TGroup extends keyof LayoutTemplateConfig>(
+    group: TGroup,
+    patch: Partial<LayoutTemplateConfig[TGroup]>,
+  ) => {
+    updateLayoutTemplate(updateLayoutTemplateField(state.layoutTemplate, group, patch));
+  };
+
+  const patchHeadingTemplate = (index: number, patch: Partial<LayoutTemplateConfig['headings'][number]>) => {
+    updateLayoutTemplate({
+      ...state.layoutTemplate,
+      headings: state.layoutTemplate.headings.map((heading: LayoutTemplateConfig['headings'][number], headingIndex: number) => (
+        headingIndex === index ? { ...heading, ...patch } : heading
+      )),
+    });
+  };
+
+  const selectLayoutTemplate = (templateId: string) => {
+    const nextTemplate = state.layoutTemplates.find((template) => template.id === templateId);
+    if (nextTemplate) updateLayoutTemplate(nextTemplate);
+  };
+
+  const createBlankLayoutTemplate = () => {
+    updateLayoutTemplate({
+      ...defaultLayoutTemplate,
+      id: createLayoutTemplateId('bid-template'),
+      name: `新建版式模板 ${state.layoutTemplates.length + 1}`,
+    });
+  };
+
+  const duplicateLayoutTemplate = () => {
+    updateLayoutTemplate({
+      ...state.layoutTemplate,
+      id: createLayoutTemplateId(state.layoutTemplate.name),
+      name: `${state.layoutTemplate.name || '版式模板'} 副本`,
+    });
+  };
+
+  const deleteLayoutTemplate = () => {
+    if (state.layoutTemplates.length <= 1) {
+      showToast('至少保留一个版式模板', 'info');
+      return;
+    }
+    if (!window.confirm(`确认删除版式模板“${state.layoutTemplate.name}”？`)) return;
+    setState((prev) => {
+      const nextTemplates = prev.layoutTemplates.filter((template) => template.id !== prev.layoutTemplate.id);
+      const nextActive = normalizeLayoutTemplate(nextTemplates[0] || defaultLayoutTemplate);
+      return {
+        ...prev,
+        layoutTemplate: nextActive,
+        layoutTemplates: nextTemplates.length ? nextTemplates : [nextActive],
+      };
+    });
   };
 
   const updateTextModelProvider = (provider: TextModelProvider) => {
@@ -820,6 +1035,58 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     }
   };
 
+  const loadFonts = async () => {
+    try {
+      setFontBusy('scan');
+      const result = await window.yibiao?.config.listFonts();
+      setFontInfos(result?.fonts || []);
+      setFontsDir(result?.fontsDir || '');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '读取字体列表失败', 'error');
+    } finally {
+      setFontBusy(null);
+    }
+  };
+
+  const openFontsFolder = async () => {
+    try {
+      await window.yibiao?.config.openFontsFolder();
+      showToast('已打开字体文件夹', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '打开字体文件夹失败', 'error');
+    }
+  };
+
+  const importFonts = async () => {
+    try {
+      setFontBusy('import');
+      const result = await window.yibiao?.config.importFonts();
+      setFontInfos(result?.fonts || []);
+      setFontsDir(result?.fontsDir || '');
+      if (!result?.canceled) {
+        showToast(`已导入 ${result?.imported?.length || 0} 个字体文件`, 'success');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导入字体失败', 'error');
+    } finally {
+      setFontBusy(null);
+    }
+  };
+
+  const installFonts = async () => {
+    try {
+      setFontBusy('install');
+      const result = await window.yibiao?.config.installFonts();
+      setFontInfos(result?.fonts || []);
+      setFontsDir(result?.fontsDir || '');
+      showToast(result?.message || '字体安装完成', result?.success ? 'success' : 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '安装字体失败', 'error');
+    } finally {
+      setFontBusy(null);
+    }
+  };
+
   const loadApiServerStatus = async () => {
     try {
       const status = await window.yibiao?.apiServer.getStatus();
@@ -1020,6 +1287,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       return Boolean(state.general.developer_mode) !== Boolean(savedConfig.developer_mode);
     }
 
+    if (activeTab === 'layout-template') {
+      return JSON.stringify(state.layoutTemplate) !== JSON.stringify(normalizeLayoutTemplate(savedConfig.layout_template));
+    }
+
     if (activeTab === 'image-model') {
       return JSON.stringify({
         provider: state.imageModel.provider,
@@ -1046,6 +1317,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       await saveTextConfig();
       return;
     }
+    if (activeTab === 'layout-template') {
+      await saveClientConfig(createClientConfig());
+      return;
+    }
     if (activeTab === 'image-model') {
       await saveImageConfig();
       return;
@@ -1055,7 +1330,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     }
   };
 
-  const canSaveActiveTab = activeTab === 'general' || activeTab === 'text-model' || activeTab === 'image-model' || activeTab === 'file-parser';
+  const canSaveActiveTab = activeTab === 'general' || activeTab === 'layout-template' || activeTab === 'text-model' || activeTab === 'image-model' || activeTab === 'file-parser';
   const activeTabDirty = isActiveTabDirty();
   const currentTextProviderDefault = textProviderDefaults[state.textModel.provider];
   const imageModelStatus: ImageModelStatus = state.imageModel.status || 'untested';
@@ -1182,6 +1457,290 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 </div>
               </div>
             )}
+          </div>
+        </section>
+      )}
+
+      {activeTab === 'layout-template' && (
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>版式模板</strong>
+          </div>
+          <div className="settings-list">
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>模板库</strong>
+                <span>可以保存多套配置文件。新建项目或导出时选择模板后，页面、标题、正文、表格和图片规则会统一套用。</span>
+              </div>
+              <div className="settings-control-with-action layout-template-toolbar">
+                <select value={state.layoutTemplate.id} onChange={(event) => selectLayoutTemplate(event.target.value)}>
+                  {state.layoutTemplates.map((template) => (
+                    <option value={template.id} key={template.id}>{template.name}（{template.industry || '通用'}）</option>
+                  ))}
+                </select>
+                <button type="button" className="inline-action" onClick={createBlankLayoutTemplate}>新建</button>
+                <button type="button" className="inline-action" onClick={duplicateLayoutTemplate}>复制</button>
+                <button type="button" className="inline-action" onClick={deleteLayoutTemplate} disabled={state.layoutTemplates.length <= 1}>删除</button>
+              </div>
+            </div>
+            <div className="module-note-banner">
+              字体说明：常用字体可直接填写系统字体名称，例如宋体、仿宋、黑体、楷体。项目也支持自带字体文件夹：<code>client/electron/fonts</code>，可放入 <code>.ttf</code>、<code>.otf</code>、<code>.woff</code>、<code>.woff2</code> 文件；后续导出会优先按模板中填写的字体名称应用。
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>字体文件夹</strong>
+                <span>这里管理软件自带字体。导入后可在正文、标题字体输入框中使用字体文件名或字体族名称；安装到系统后，Word/WPS 打开导出文件时显示更稳定。</span>
+              </div>
+              <div className="layout-font-manager">
+                <div className="layout-font-actions">
+                  <button type="button" className="inline-action" onClick={() => void loadFonts()} disabled={fontBusy !== null}>
+                    {fontBusy === 'scan' ? '扫描中' : '刷新字体'}
+                  </button>
+                  <button type="button" className="inline-action" onClick={openFontsFolder}>打开文件夹</button>
+                  <button type="button" className="inline-action" onClick={importFonts} disabled={fontBusy !== null}>
+                    {fontBusy === 'import' ? '导入中' : '导入字体'}
+                  </button>
+                  <button type="button" className="inline-action primary" onClick={installFonts} disabled={fontBusy !== null || fontInfos.length === 0}>
+                    {fontBusy === 'install' ? '安装中' : '安装到系统'}
+                  </button>
+                </div>
+                <small>{fontsDir || '字体目录未读取'}</small>
+                <div className="layout-font-list">
+                  {fontInfos.length ? fontInfos.map((font) => (
+                    <span key={font.filePath} title={font.filePath}>
+                      {font.family}
+                      <em>{font.installed ? '已安装' : font.extension}</em>
+                    </span>
+                  )) : <span>未发现字体文件</span>}
+                </div>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>公文格式参考</strong>
+                <span>用于辅助设置模板，不强制写入正式文件。不同招标文件有专门格式要求时，应优先按招标文件执行。</span>
+              </div>
+              <div className="official-format-guide">
+                <div><strong>A4 页面</strong><span>常见公文参考：上 37mm、下 35mm、左 28mm、右 26mm。</span></div>
+                <div><strong>标题</strong><span>常用二号小标宋或等效标题字体，居中。</span></div>
+                <div><strong>正文</strong><span>常用三号仿宋，首行缩进 2 字符，固定行距或 1.5 倍行距。</span></div>
+                <div><strong>层级</strong><span>常用“一、”“（一）”“1.”“（1）”作为章节编号。</span></div>
+              </div>
+            </div>
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>模板名称</strong>
+                <span>这套配置文件的名称，例如“政府采购 A4 标准版”“工程施工技术标”。</span>
+              </div>
+              <input
+                type="text"
+                value={state.layoutTemplate.name}
+                onChange={(event) => patchLayoutTemplate({ name: event.target.value })}
+                placeholder="标准投标文件 A4"
+              />
+            </label>
+            <label className="settings-row">
+              <div className="settings-row-copy">
+                <strong>适用行业</strong>
+                <span>用于区分工程、服务、采购、信息化、运维等不同项目类型。</span>
+              </div>
+              <input
+                type="text"
+                value={state.layoutTemplate.industry}
+                onChange={(event) => patchLayoutTemplate({ industry: event.target.value })}
+                placeholder="通用"
+              />
+            </label>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>页面设置</strong>
+                <span>控制 Word 页面大小、上下左右页边距和装订线；单位是毫米。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutField label="纸张尺寸">
+                  <select value={state.layoutTemplate.page.size} onChange={(event) => patchLayoutTemplateGroup('page', { size: event.target.value as 'A4' | 'A3' })}>
+                    <option value="A4">A4</option>
+                    <option value="A3">A3</option>
+                  </select>
+                </LayoutField>
+                <LayoutField label="上边距（mm）">
+                  <input type="number" value={state.layoutTemplate.page.margin_top_mm} onChange={(event) => patchLayoutTemplateGroup('page', { margin_top_mm: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="下边距（mm）">
+                  <input type="number" value={state.layoutTemplate.page.margin_bottom_mm} onChange={(event) => patchLayoutTemplateGroup('page', { margin_bottom_mm: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="左边距（mm）">
+                  <input type="number" value={state.layoutTemplate.page.margin_left_mm} onChange={(event) => patchLayoutTemplateGroup('page', { margin_left_mm: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="右边距（mm）">
+                  <input type="number" value={state.layoutTemplate.page.margin_right_mm} onChange={(event) => patchLayoutTemplateGroup('page', { margin_right_mm: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="装订线（mm）">
+                  <input type="number" value={state.layoutTemplate.page.gutter_mm} onChange={(event) => patchLayoutTemplateGroup('page', { gutter_mm: Number(event.target.value) || 0 })} />
+                </LayoutField>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>封面设计</strong>
+                <span>控制合并导出的封面标题、字段名称和 Logo 占位。可使用变量：{'{项目名称}'}、{'{投标单位}'}、{'{日期}'}。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutField label="封面主标题" hint="一般使用 {项目名称}">
+                  <input type="text" value={state.layoutTemplate.cover.title} onChange={(event) => patchLayoutTemplateGroup('cover', { title: event.target.value })} placeholder="{项目名称}" />
+                </LayoutField>
+                <LayoutField label="封面副标题" hint="例如 投标文件、技术标、商务标">
+                  <input type="text" value={state.layoutTemplate.cover.subtitle} onChange={(event) => patchLayoutTemplateGroup('cover', { subtitle: event.target.value })} placeholder="投标文件" />
+                </LayoutField>
+                <LayoutField label="投标单位字段名">
+                  <input type="text" value={state.layoutTemplate.cover.bidder_label} onChange={(event) => patchLayoutTemplateGroup('cover', { bidder_label: event.target.value })} placeholder="投标单位" />
+                </LayoutField>
+                <LayoutField label="招标单位字段名">
+                  <input type="text" value={state.layoutTemplate.cover.tenderer_label} onChange={(event) => patchLayoutTemplateGroup('cover', { tenderer_label: event.target.value })} placeholder="招标单位" />
+                </LayoutField>
+                <LayoutField label="日期字段名">
+                  <input type="text" value={state.layoutTemplate.cover.date_label} onChange={(event) => patchLayoutTemplateGroup('cover', { date_label: event.target.value })} placeholder="日期" />
+                </LayoutField>
+                <LayoutField label="封面 Logo 路径" hint="本地图片文件路径，可暂时留空">
+                  <input type="text" value={state.layoutTemplate.cover.logo_path} onChange={(event) => patchLayoutTemplateGroup('cover', { logo_path: event.target.value })} placeholder="例如 D:/logo.png" />
+                </LayoutField>
+                <LayoutCheckField label="显示 Logo 占位" checked={state.layoutTemplate.cover.show_logo_placeholder} onChange={(checked) => patchLayoutTemplateGroup('cover', { show_logo_placeholder: checked })} />
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>目录样式</strong>
+                <span>控制目录页是否显示页码、Word 原生连接符和目录展示层级。连接符会自动延展到页码位置，不是手工输入点线。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutCheckField label="目录页显示页码" checked={state.layoutTemplate.toc.show_page_numbers} onChange={(checked) => patchLayoutTemplateGroup('toc', { show_page_numbers: checked })} />
+                <LayoutField label="目录页码格式" hint="支持 {page} 当前页、{pages} 总页数">
+                  <input type="text" value={state.layoutTemplate.toc.page_number_format} onChange={(event) => patchLayoutTemplateGroup('toc', { page_number_format: event.target.value })} placeholder="第 {page} 页 / 共 {pages} 页" />
+                </LayoutField>
+                <LayoutField label="目录连接符">
+                  <select value={state.layoutTemplate.toc.leader} onChange={(event) => patchLayoutTemplateGroup('toc', { leader: event.target.value as LayoutTemplateConfig['toc']['leader'] })}>
+                    <option value="dot">点线 ......</option>
+                    <option value="hyphen">横线 ------</option>
+                    <option value="underscore">下划线 ____</option>
+                    <option value="middleDot">中点 ······</option>
+                    <option value="none">不显示</option>
+                  </select>
+                </LayoutField>
+                <LayoutField label="目录最大层级">
+                  <input type="number" min="1" max="6" value={state.layoutTemplate.toc.max_level} onChange={(event) => patchLayoutTemplateGroup('toc', { max_level: Number(event.target.value) || 3 })} />
+                </LayoutField>
+                <LayoutCheckField label="预览显示标尺" checked={state.layoutTemplate.preview.show_rulers} onChange={(checked) => patchLayoutTemplateGroup('preview', { show_rulers: checked })} />
+                <LayoutCheckField label="预览显示页边距线" checked={state.layoutTemplate.preview.show_guides} onChange={(checked) => patchLayoutTemplateGroup('preview', { show_guides: checked })} />
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>页眉</strong>
+                <span>控制每页顶部显示内容。可使用变量：{'{项目名称}'}、{'{投标单位}'}。Logo 路径用于后续插入页眉图片。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutCheckField label="显示页眉" checked={state.layoutTemplate.header.enabled} onChange={(checked) => patchLayoutTemplateGroup('header', { enabled: checked })} />
+                <LayoutField label="页眉文字" hint="可填 {项目名称}、{投标单位}">
+                  <input type="text" value={state.layoutTemplate.header.text} onChange={(event) => patchLayoutTemplateGroup('header', { text: event.target.value })} placeholder="{项目名称}" />
+                </LayoutField>
+                <LayoutField label="页眉 Logo 路径" hint="本地图片文件路径，可暂时留空">
+                  <input type="text" value={state.layoutTemplate.header.logo_path} onChange={(event) => patchLayoutTemplateGroup('header', { logo_path: event.target.value })} placeholder="例如 D:/logo.png" />
+                </LayoutField>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>页脚</strong>
+                <span>控制每页底部显示内容和页码格式。页码变量：{'{page}'} 当前页，{'{pages}'} 总页数。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutCheckField label="显示页脚" checked={state.layoutTemplate.footer.enabled} onChange={(checked) => patchLayoutTemplateGroup('footer', { enabled: checked })} />
+                <LayoutField label="页脚文字" hint="可填 {投标单位} 或项目备注">
+                  <input type="text" value={state.layoutTemplate.footer.text} onChange={(event) => patchLayoutTemplateGroup('footer', { text: event.target.value })} placeholder="{投标单位}" />
+                </LayoutField>
+                <LayoutField label="页码格式" hint="支持 {page} 当前页、{pages} 总页数">
+                  <input type="text" value={state.layoutTemplate.footer.page_number_format} onChange={(event) => patchLayoutTemplateGroup('footer', { page_number_format: event.target.value })} placeholder="第 {page} 页 / 共 {pages} 页" />
+                </LayoutField>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>正文样式</strong>
+                <span>控制普通段落，不影响标题、表格和图片题注。首行缩进按中文字符数计算。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutField label="正文字体" hint="系统字体名或 fonts 文件夹中的字体名">
+                  <input type="text" value={state.layoutTemplate.typography.body_font} onChange={(event) => patchLayoutTemplateGroup('typography', { body_font: event.target.value })} placeholder="宋体" />
+                </LayoutField>
+                <LayoutField label="正文字号（pt）">
+                  <input type="number" value={state.layoutTemplate.typography.body_size_pt} onChange={(event) => patchLayoutTemplateGroup('typography', { body_size_pt: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="行距倍数">
+                  <input type="number" step="0.1" value={state.layoutTemplate.typography.line_spacing} onChange={(event) => patchLayoutTemplateGroup('typography', { line_spacing: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="首行缩进（字符）">
+                  <input type="number" value={state.layoutTemplate.typography.first_line_indent_chars} onChange={(event) => patchLayoutTemplateGroup('typography', { first_line_indent_chars: Number(event.target.value) || 0 })} />
+                </LayoutField>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>标题层级</strong>
+                <span>控制一级到四级标题。编号用于导出时保持“一、（一）、1.、（1）”这类标书目录格式。</span>
+              </div>
+              <div className="layout-heading-list">
+                {state.layoutTemplate.headings.map((heading: LayoutTemplateConfig['headings'][number], index: number) => (
+                  <div className="layout-heading-row" key={heading.level}>
+                    <LayoutField label="标题级别">
+                      <input type="number" value={heading.level} onChange={(event) => patchHeadingTemplate(index, { level: Number(event.target.value) || 1 })} />
+                    </LayoutField>
+                    <LayoutField label="标题字体">
+                      <input type="text" value={heading.font} onChange={(event) => patchHeadingTemplate(index, { font: event.target.value })} placeholder="黑体" />
+                    </LayoutField>
+                    <LayoutField label="字号（pt）">
+                      <input type="number" value={heading.size_pt} onChange={(event) => patchHeadingTemplate(index, { size_pt: Number(event.target.value) || 0 })} />
+                    </LayoutField>
+                    <LayoutField label="对齐方式">
+                      <select value={heading.alignment} onChange={(event) => patchHeadingTemplate(index, { alignment: event.target.value as 'left' | 'center' })}>
+                        <option value="left">左对齐</option>
+                        <option value="center">居中</option>
+                      </select>
+                    </LayoutField>
+                    <LayoutField label="编号样式">
+                      <input type="text" value={heading.numbering} onChange={(event) => patchHeadingTemplate(index, { numbering: event.target.value })} placeholder="一、" />
+                    </LayoutField>
+                    <LayoutCheckField label="标题加粗" checked={heading.bold} onChange={(checked) => patchHeadingTemplate(index, { bold: checked })} />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>表格与图片</strong>
+                <span>控制报价表、资质清单、业绩表和附件图片在 Word 中的统一排版。</span>
+              </div>
+              <div className="layout-field-grid">
+                <LayoutField label="表头底色" hint="6 位十六进制颜色值">
+                  <input type="text" value={state.layoutTemplate.tables.header_fill} onChange={(event) => patchLayoutTemplateGroup('tables', { header_fill: event.target.value })} placeholder="F1F6FF" />
+                </LayoutField>
+                <LayoutField label="表格边框颜色" hint="6 位十六进制颜色值">
+                  <input type="text" value={state.layoutTemplate.tables.border_color} onChange={(event) => patchLayoutTemplateGroup('tables', { border_color: event.target.value })} placeholder="DCDFF6" />
+                </LayoutField>
+                <LayoutCheckField label="跨页重复表头" checked={state.layoutTemplate.tables.repeat_header} onChange={(checked) => patchLayoutTemplateGroup('tables', { repeat_header: checked })} />
+                <LayoutCheckField label="允许表格跨页" checked={state.layoutTemplate.tables.allow_page_break} onChange={(checked) => patchLayoutTemplateGroup('tables', { allow_page_break: checked })} />
+                <LayoutField label="图片最大宽度（%）" hint="相对页面可用宽度">
+                  <input type="number" value={state.layoutTemplate.images.max_width_percent} onChange={(event) => patchLayoutTemplateGroup('images', { max_width_percent: Number(event.target.value) || 0 })} />
+                </LayoutField>
+                <LayoutField label="图片对齐方式">
+                  <select value={state.layoutTemplate.images.align} onChange={(event) => patchLayoutTemplateGroup('images', { align: event.target.value as 'left' | 'center' })}>
+                    <option value="center">居中</option>
+                    <option value="left">左对齐</option>
+                  </select>
+                </LayoutField>
+                <LayoutCheckField label="显示图片题注" checked={state.layoutTemplate.images.caption_enabled} onChange={(checked) => patchLayoutTemplateGroup('images', { caption_enabled: checked })} />
+              </div>
+            </div>
           </div>
         </section>
       )}

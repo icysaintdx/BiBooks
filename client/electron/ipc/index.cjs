@@ -1,5 +1,6 @@
-const { ipcMain, shell } = require('electron');
+const { dialog, ipcMain, shell } = require('electron');
 const https = require('node:https');
+const path = require('node:path');
 const { registerAiIpc } = require('./aiIpc.cjs');
 const { registerConfigIpc } = require('./configIpc.cjs');
 const { registerDuplicateCheckIpc } = require('./duplicateCheckIpc.cjs');
@@ -44,6 +45,11 @@ const { createCommercialBidService } = require('../services/commercialBidService
 const { createBidOpportunityService } = require('../services/bidOpportunityService.cjs');
 const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
 const { createCommercialBidStore } = require('../services/commercialBidStore.cjs');
+const { createPricingStore } = require('../services/pricingStore.cjs');
+const { createSourceAnnotationStore } = require('../services/sourceAnnotationStore.cjs');
+const { createProjectWorkspaceStore } = require('../services/projectWorkspaceStore.cjs');
+const { createProjectAnalysisStore } = require('../services/projectAnalysisStore.cjs');
+const { createRepairTaskStore } = require('../services/repairTaskStore.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -63,9 +69,63 @@ function registerUnavailableTechnicalPlanIpc(error) {
   const throwUnavailable = () => {
     throw new Error(message);
   };
+  const registerUnavailableHandler = (channel) => {
+    try {
+      ipcMain.handle(channel, throwUnavailable);
+    } catch {
+      // 如果前面已经注册过该通道，保留已有处理器，避免二次注册导致主进程继续报错。
+    }
+  };
 
   console.error('[ipc] 工作区数据库初始化失败', error);
   [
+    'project-workspace:list',
+    'project-workspace:create',
+    'project-workspace:update',
+    'project-workspace:select',
+    'project-workspace:delete',
+    'project-workspace:restore',
+    'project-workspace:destroy',
+    'project-workspace:clear-current',
+    'project-workspace:select-tender-file',
+    'project-workspace:save-last-section',
+    'repair-tasks:list',
+    'repair-tasks:save',
+    'repair-tasks:update',
+    'repair-tasks:bulk-update-status',
+    'repair-tasks:delete',
+    'pricing:list',
+    'pricing:get',
+    'pricing:save',
+    'pricing:delete',
+    'pricing:calculate',
+    'pricing:export-markdown',
+    'bid-opportunity:list',
+    'bid-opportunity:create',
+    'bid-opportunity:analyze',
+    'bid-opportunity:generate-recommendation',
+    'bid-opportunity:update-status',
+    'bid-opportunity:delete',
+    'bid-opportunity:generate-calendar',
+    'bid-opportunity:analyze-competition',
+    'bid-opportunity:generate-report',
+    'bid-opportunity:get-statuses',
+    'bid-opportunity:get-decision-factors',
+    'bid-opportunity:get-tender-sources',
+    'commercial-bid:list',
+    'commercial-bid:save',
+    'commercial-bid:delete',
+    'commercial-bid:generate',
+    'commercial-bid:generate-price',
+    'commercial-bid:generate-terms',
+    'commercial-bid:generate-qualifications',
+    'commercial-bid:generate-performance',
+    'commercial-bid:generate-financial',
+    'commercial-bid:generate-service',
+    'commercial-bid:generate-report',
+    'commercial-bid:get-sections',
+    'commercial-bid:get-price-templates',
+    'commercial-bid:get-qualification-types',
     'technical-plan:load-state',
     'technical-plan:import-tender-document',
     'technical-plan:read-tender-markdown',
@@ -109,7 +169,7 @@ function registerUnavailableTechnicalPlanIpc(error) {
     'tasks:start-rejection-check',
     'tasks:start-duplicate-analysis',
     'tasks:get-active',
-  ].forEach((channel) => ipcMain.handle(channel, throwUnavailable));
+  ].forEach(registerUnavailableHandler);
   ipcMain.on('tasks:subscribe', () => {});
 }
 
@@ -119,8 +179,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   const fileService = createFileService({ app, configStore });
   const exportService = createExportService({ configStore });
 
-  // 运行日志 IPC（始终可用）
-  const runtimeLogPath = require('node:path').join(app.getPath('userData'), 'logs', 'runtime.log');
+  // 运行日志 IPC：始终可用。
+  const runtimeLogPath = path.join(app.getPath('userData'), 'logs', 'runtime.log');
   ipcMain.handle('app:read-runtime-log', () => {
     try {
       if (require('node:fs').existsSync(runtimeLogPath)) {
@@ -145,7 +205,8 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     const duplicateCheckStore = createDuplicateCheckStore({ app, db: sqliteDatabase.db });
     const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore });
     const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
-    const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService });
+    const sourceAnnotationStore = createSourceAnnotationStore({ db: sqliteDatabase.db });
+    const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService, sourceAnnotationStore });
     const versionManagementStore = createVersionManagementStore({ db: sqliteDatabase.db });
     const competitiveAnalysisService = createCompetitiveAnalysisService();
     const complianceCheckService = createComplianceCheckService();
@@ -160,19 +221,47 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     });
     const collaborationService = createCollaborationService({ db: sqliteDatabase.db, versionManagementStore });
     const websocketService = createWebSocketServer({ httpServer: null });
-    const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db });
-    const commercialBidStore = createCommercialBidStore({ db: sqliteDatabase.db });
+    const projectWorkspaceStore = createProjectWorkspaceStore({ app, db: sqliteDatabase.db, technicalPlanStore });
+    const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, projectWorkspaceStore });
+    const commercialBidStore = createCommercialBidStore({ db: sqliteDatabase.db, projectWorkspaceStore });
+    const pricingStore = createPricingStore({ db: sqliteDatabase.db, projectWorkspaceStore });
+    const projectAnalysisStore = createProjectAnalysisStore({ db: sqliteDatabase.db, projectWorkspaceStore });
+    const repairTaskStore = createRepairTaskStore({ db: sqliteDatabase.db, projectWorkspaceStore });
     registerKnowledgeBaseIpc({ knowledgeBaseService });
-    registerTechnicalPlanIpc({ technicalPlanStore });
+    registerTechnicalPlanIpc({ technicalPlanStore, sourceAnnotationStore });
     registerVersionManagementIpc({ versionManagementStore, technicalPlanStore });
     registerDuplicateCheckIpc({ duplicateCheckStore });
     registerRejectionCheckIpc({ rejectionCheckStore });
-    registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService });
+    registerTaskIpc({ taskService, competitiveAnalysisService, complianceCheckService, projectAnalysisStore });
     registerPrivateKnowledgeBaseIpc({ privateKnowledgeBaseService });
     registerApiServerIpc({ apiServer });
     registerCollaborationIpc({ collaborationService, websocketService });
 
-    // 投标机会持久化 IPC
+    ipcMain.handle('project-workspace:list', (_event, options) => projectWorkspaceStore.list(options));
+    ipcMain.handle('project-workspace:create', (_event, input) => projectWorkspaceStore.create(input));
+    ipcMain.handle('project-workspace:update', (_event, projectId, patch) => projectWorkspaceStore.update(projectId, patch));
+    ipcMain.handle('project-workspace:select', (_event, projectId, options) => projectWorkspaceStore.select(projectId, options));
+    ipcMain.handle('project-workspace:delete', (_event, projectId) => projectWorkspaceStore.remove(projectId));
+    ipcMain.handle('project-workspace:restore', (_event, projectId) => projectWorkspaceStore.restore(projectId));
+    ipcMain.handle('project-workspace:destroy', (_event, projectId) => projectWorkspaceStore.destroy(projectId));
+    ipcMain.handle('project-workspace:clear-current', () => projectWorkspaceStore.clearCurrent());
+    ipcMain.handle('project-workspace:select-tender-file', () => projectWorkspaceStore.selectTenderFile());
+    ipcMain.handle('project-workspace:save-last-section', (_event, section) => projectWorkspaceStore.saveLastSection(section));
+    ipcMain.handle('repair-tasks:list', (_event, filter) => repairTaskStore.list(filter));
+    ipcMain.handle('repair-tasks:save', (_event, input) => repairTaskStore.save(input));
+    ipcMain.handle('repair-tasks:update', (_event, taskId, patch) => repairTaskStore.update(taskId, patch));
+    ipcMain.handle('repair-tasks:bulk-update-status', (_event, taskIds, status, decision) => repairTaskStore.bulkUpdateStatus(taskIds, status, decision));
+    ipcMain.handle('repair-tasks:delete', (_event, taskId) => repairTaskStore.remove(taskId));
+
+    // 报价管理 IPC：本地 SQLite 持久化，本地确定性计算，不调用 AI。
+    ipcMain.handle('pricing:list', () => pricingStore.list());
+    ipcMain.handle('pricing:get', (_event, id) => pricingStore.get(id));
+    ipcMain.handle('pricing:save', (_event, sheet) => pricingStore.save(sheet));
+    ipcMain.handle('pricing:delete', (_event, id) => pricingStore.remove(id));
+    ipcMain.handle('pricing:calculate', (_event, sheet) => pricingStore.calculate(sheet));
+    ipcMain.handle('pricing:export-markdown', (_event, sheet) => pricingStore.exportMarkdown(sheet));
+
+    // 投标机会持久化 IPC。
     const bidOpportunityService = createBidOpportunityService();
     ipcMain.handle('bid-opportunity:list', () => bidOpportunityStore.list());
     ipcMain.handle('bid-opportunity:create', (_event, data) => {
@@ -207,7 +296,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     ipcMain.handle('bid-opportunity:get-decision-factors', () => bidOpportunityService.DECISION_FACTORS);
     ipcMain.handle('bid-opportunity:get-tender-sources', () => bidOpportunityService.TENDER_SOURCES);
 
-    // 商务标持久化 IPC
+    // 商务材料草稿持久化 IPC。
     const commercialBidService = createCommercialBidService();
     ipcMain.handle('commercial-bid:list', () => commercialBidStore.list());
     ipcMain.handle('commercial-bid:save', (_event, bid) => commercialBidStore.save(bid));
@@ -248,7 +337,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 
   ipcMain.handle('app:get-version', () => app.getVersion());
 
-  // 封面生成 IPC
+  // 封面生成 IPC。
   ipcMain.handle('cover:generate', async (event, options) => {
     try {
       const result = await dialog.showSaveDialog({
@@ -267,7 +356,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     }
   });
 
-  // 目录生成 IPC
+  // 目录生成 IPC。
   ipcMain.handle('toc:generate', async (event, options) => {
     try {
       const result = await dialog.showSaveDialog({
@@ -286,7 +375,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     }
   });
 
-  // 占位符服务 IPC
+  // 占位符服务 IPC。
   const placeholderService = createPlaceholderService();
   ipcMain.handle('placeholder:analyze', (_event, content) => {
     return placeholderService.analyzeContentForPlaceholders(content);
@@ -305,7 +394,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     return placeholderService.insertPlaceholder(content, name, position);
   });
 
-  // 模板知识服务 IPC
+  // 模板知识服务 IPC。
   const templateKnowledgeService = createTemplateKnowledgeService();
   ipcMain.handle('template:list-industries', () => {
     return templateKnowledgeService.listIndustryTemplates();
@@ -323,7 +412,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     return templateKnowledgeService.generateTemplateReferencePrompt(industryCode);
   });
 
-  // 文档拆分服务 IPC
+  // 文档拆分服务 IPC。
   const documentSplitterService = createDocumentSplitterService();
   ipcMain.handle('document-splitter:extract', async (_event, filePath) => {
     return documentSplitterService.extractDocumentBlocks(filePath);
@@ -338,7 +427,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     return documentSplitterService.generateSplitReport(splitResult);
   });
 
-  // 任务重试服务 IPC
+  // 任务重试服务 IPC。
   const taskRetryService = createTaskRetryService();
   ipcMain.handle('task-retry:get-queue-status', () => {
     return taskRetryService.taskQueue.getStatus();
@@ -354,7 +443,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     };
   });
 
-  // 文档模板服务 IPC
+  // 文档模板服务 IPC。
   const docxTemplateService = createDocxTemplateService();
   ipcMain.handle('docx-template:process', (_event, template, context) => {
     return docxTemplateService.processTemplate(template, context);
@@ -455,3 +544,4 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 module.exports = {
   registerIpcHandlers,
 };
+

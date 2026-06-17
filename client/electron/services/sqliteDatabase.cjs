@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 6;
+const schemaVersion = 15;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -662,6 +662,240 @@ function createBidModulesSchema(db) {
   `);
 }
 
+function createPricingSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pricing_sheets (
+      id TEXT PRIMARY KEY,
+      bid_project_id TEXT NOT NULL DEFAULT '',
+      project_name TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL DEFAULT 'CNY',
+      tax_rate REAL NOT NULL DEFAULT 0.13,
+      discount_rate REAL NOT NULL DEFAULT 0,
+      items_json TEXT NOT NULL DEFAULT '[]',
+      notes TEXT NOT NULL DEFAULT '',
+      summary_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pricing_sheets_updated_at
+    ON pricing_sheets(updated_at DESC);
+  `);
+}
+
+function createSourceAnnotationSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_source_annotations (
+      annotation_id TEXT PRIMARY KEY,
+      project_scope TEXT NOT NULL DEFAULT 'technical_plan',
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL,
+      source_title TEXT NOT NULL DEFAULT '',
+      source_ref TEXT NOT NULL DEFAULT '',
+      excerpt TEXT NOT NULL DEFAULT '',
+      claim TEXT NOT NULL DEFAULT '',
+      risk_level TEXT NOT NULL DEFAULT 'low',
+      requires_approval INTEGER NOT NULL DEFAULT 0,
+      approval_status TEXT NOT NULL DEFAULT 'approved',
+      approved_by TEXT NOT NULL DEFAULT '',
+      approved_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_source_annotations_target
+    ON project_source_annotations(project_scope, target_type, target_id);
+
+    CREATE INDEX IF NOT EXISTS idx_project_source_annotations_approval
+    ON project_source_annotations(project_scope, approval_status, requires_approval);
+
+    CREATE INDEX IF NOT EXISTS idx_project_source_annotations_source_type
+    ON project_source_annotations(project_scope, source_type);
+  `);
+}
+
+function createTenderParseQualitySchema(db) {
+  db.exec(`
+    ALTER TABLE technical_plan_meta ADD COLUMN tender_parse_quality_json TEXT;
+  `);
+}
+
+function createProjectWorkspaceSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_projects (
+      project_id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      tender_file_name TEXT NOT NULL DEFAULT '',
+      tender_file_path TEXT NOT NULL DEFAULT '',
+      project_dir TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      last_section TEXT NOT NULL DEFAULT 'technical-plan',
+      notes TEXT NOT NULL DEFAULT '',
+      password_salt TEXT NOT NULL DEFAULT '',
+      password_hash TEXT NOT NULL DEFAULT '',
+      deleted_at TEXT NOT NULL DEFAULT '',
+      purge_after TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_opened_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_projects_updated_at
+    ON app_projects(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS app_project_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      current_project_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_project_snapshots (
+      project_id TEXT PRIMARY KEY,
+      technical_plan_state_json TEXT,
+      technical_plan_markdown TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES app_projects(project_id) ON DELETE CASCADE
+    );
+  `);
+}
+
+function createProjectScopedBidModuleSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_project_snapshots (
+      project_id TEXT PRIMARY KEY,
+      technical_plan_state_json TEXT,
+      technical_plan_markdown TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES app_projects(project_id) ON DELETE CASCADE
+    );
+
+    ALTER TABLE commercial_bids ADD COLUMN bid_project_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE bid_opportunities ADD COLUMN bid_project_id TEXT NOT NULL DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_commercial_bids_project_updated
+    ON commercial_bids(bid_project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunities_project_updated
+    ON bid_opportunities(bid_project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pricing_sheets_project_updated
+    ON pricing_sheets(bid_project_id, updated_at DESC);
+  `);
+}
+
+function createProjectAnalysisRecordSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_analysis_records (
+      record_id TEXT PRIMARY KEY,
+      bid_project_id TEXT NOT NULL DEFAULT '',
+      analysis_type TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      input_json TEXT NOT NULL DEFAULT '{}',
+      result_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_analysis_records_project_type_updated
+    ON project_analysis_records(bid_project_id, analysis_type, updated_at DESC);
+  `);
+}
+
+function createProjectSecurityAndRecycleSchema(db) {
+  const existingColumns = new Set(db.prepare('PRAGMA table_info(app_projects)').all().map((column) => column.name));
+  const addColumn = (name, definition) => {
+    if (!existingColumns.has(name)) db.exec(`ALTER TABLE app_projects ADD COLUMN ${definition}`);
+  };
+  addColumn('tender_file_path', "tender_file_path TEXT NOT NULL DEFAULT ''");
+  addColumn('project_dir', "project_dir TEXT NOT NULL DEFAULT ''");
+  addColumn('password_salt', "password_salt TEXT NOT NULL DEFAULT ''");
+  addColumn('password_hash', "password_hash TEXT NOT NULL DEFAULT ''");
+  addColumn('deleted_at', "deleted_at TEXT NOT NULL DEFAULT ''");
+  addColumn('purge_after', "purge_after TEXT NOT NULL DEFAULT ''");
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_app_projects_deleted_purge
+    ON app_projects(deleted_at, purge_after);
+  `);
+}
+
+function createProjectRepairTaskSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_repair_tasks (
+      task_id TEXT PRIMARY KEY,
+      bid_project_id TEXT NOT NULL DEFAULT '',
+      source_module TEXT NOT NULL,
+      source_record_id TEXT NOT NULL DEFAULT '',
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL DEFAULT '',
+      severity TEXT NOT NULL DEFAULT 'warning',
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      suggestion TEXT NOT NULL DEFAULT '',
+      patch_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'open',
+      decision TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      resolved_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_repair_tasks_project_status_updated
+    ON project_repair_tasks(bid_project_id, status, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_project_repair_tasks_source
+    ON project_repair_tasks(bid_project_id, source_module, source_record_id);
+
+    CREATE INDEX IF NOT EXISTS idx_project_repair_tasks_target
+    ON project_repair_tasks(bid_project_id, target_type, target_id);
+  `);
+}
+
+function createProjectRepairPatchSchema(db) {
+  const existingColumns = new Set(db.prepare('PRAGMA table_info(project_repair_tasks)').all().map((column) => column.name));
+  if (!existingColumns.has('patch_json')) {
+    db.exec(`ALTER TABLE project_repair_tasks ADD COLUMN patch_json TEXT NOT NULL DEFAULT '{}'`);
+  }
+}
+
+function tableExists(db, tableName) {
+  return Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
+}
+
+function ensureColumn(db, tableName, columnName, definition) {
+  if (!tableExists(db, tableName)) return;
+  const existingColumns = new Set(db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => column.name));
+  if (!existingColumns.has(columnName)) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${definition}`);
+  }
+}
+
+function ensureRuntimeSchemaCompatibility(db) {
+  createPricingSchema(db);
+  ensureColumn(db, 'pricing_sheets', 'bid_project_id', "bid_project_id TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'pricing_sheets', 'project_name', "project_name TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'pricing_sheets', 'currency', "currency TEXT NOT NULL DEFAULT 'CNY'");
+  ensureColumn(db, 'pricing_sheets', 'tax_rate', 'tax_rate REAL NOT NULL DEFAULT 0.13');
+  ensureColumn(db, 'pricing_sheets', 'discount_rate', 'discount_rate REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'pricing_sheets', 'items_json', "items_json TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, 'pricing_sheets', 'notes', "notes TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'pricing_sheets', 'summary_json', "summary_json TEXT NOT NULL DEFAULT '{}'");
+  ensureColumn(db, 'pricing_sheets', 'created_at', "created_at TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'pricing_sheets', 'updated_at', "updated_at TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'commercial_bids', 'bid_project_id', "bid_project_id TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'bid_opportunities', 'bid_project_id', "bid_project_id TEXT NOT NULL DEFAULT ''");
+  db.prepare("UPDATE pricing_sheets SET created_at = COALESCE(NULLIF(created_at, ''), datetime('now')) WHERE created_at = ''").run();
+  db.prepare("UPDATE pricing_sheets SET updated_at = COALESCE(NULLIF(updated_at, ''), datetime('now')) WHERE updated_at = ''").run();
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pricing_sheets_project_updated
+    ON pricing_sheets(bid_project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_commercial_bids_project_updated
+    ON commercial_bids(bid_project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunities_project_updated
+    ON bid_opportunities(bid_project_id, updated_at DESC);
+  `);
+}
+
 const migrations = [
   {
     version: 1,
@@ -692,6 +926,51 @@ const migrations = [
     version: 6,
     description: '新增投标机会和商务标持久化表',
     up: createBidModulesSchema,
+  },
+  {
+    version: 7,
+    description: '新增报价管理持久化表',
+    up: createPricingSchema,
+  },
+  {
+    version: 8,
+    description: '新增项目来源标注和人工审批记录表',
+    up: createSourceAnnotationSchema,
+  },
+  {
+    version: 9,
+    description: '新增招标文件解析质量报告字段',
+    up: createTenderParseQualitySchema,
+  },
+  {
+    version: 10,
+    description: '新增投标项目工作区列表和当前项目指针',
+    up: createProjectWorkspaceSchema,
+  },
+  {
+    version: 11,
+    description: '新增商务标、投标机会和报价的项目维度索引',
+    up: createProjectScopedBidModuleSchema,
+  },
+  {
+    version: 12,
+    description: 'Add project scoped competitive and compliance analysis records',
+    up: createProjectAnalysisRecordSchema,
+  },
+  {
+    version: 13,
+    description: 'Add project file directory, password lock, and recycle bin fields',
+    up: createProjectSecurityAndRecycleSchema,
+  },
+  {
+    version: 14,
+    description: 'Add project repair task center',
+    up: createProjectRepairTaskSchema,
+  },
+  {
+    version: 15,
+    description: 'Add repair task patch payload',
+    up: createProjectRepairPatchSchema,
   },
 ];
 
@@ -753,6 +1032,7 @@ function createSqliteDatabase(app) {
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   applyMigrations(db, databasePath);
+  ensureRuntimeSchemaCompatibility(db);
 
   const close = () => {
     if (db.open) {

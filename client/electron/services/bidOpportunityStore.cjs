@@ -2,10 +2,20 @@
  * 投标机会持久化 Store
  */
 
-function createBidOpportunityStore({ db }) {
+function createBidOpportunityStore({ db, projectWorkspaceStore }) {
+  function getCurrentProjectId() {
+    return projectWorkspaceStore?.getCurrent?.()?.id || '';
+  }
+
+  function claimLegacyRows(projectId) {
+    if (!projectId) return;
+    db.prepare("UPDATE bid_opportunities SET bid_project_id = ? WHERE bid_project_id = ''").run(projectId);
+  }
+
   function _row2opp(row) {
     return {
       id: row.id,
+      bidProjectId: row.bid_project_id || '',
       projectName: row.project_name,
       tenderNo: row.tender_no,
       clientName: row.client_name,
@@ -24,6 +34,11 @@ function createBidOpportunityStore({ db }) {
   }
 
   function list() {
+    const projectId = getCurrentProjectId();
+    claimLegacyRows(projectId);
+    if (projectId) {
+      return db.prepare('SELECT * FROM bid_opportunities WHERE bid_project_id = ? ORDER BY created_at DESC').all(projectId).map(_row2opp);
+    }
     return db.prepare('SELECT * FROM bid_opportunities ORDER BY created_at DESC').all().map(_row2opp);
   }
 
@@ -36,10 +51,11 @@ function createBidOpportunityStore({ db }) {
     const now = new Date().toISOString();
     db.prepare(`
       INSERT INTO bid_opportunities
-        (id, project_name, tender_no, client_name, budget, deadline, source, description,
+        (id, bid_project_id, project_name, tender_no, client_name, budget, deadline, source, description,
          status, decision_score, decision_factors_json, notes_json, status_history_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        bid_project_id = excluded.bid_project_id,
         project_name = excluded.project_name,
         tender_no = excluded.tender_no,
         client_name = excluded.client_name,
@@ -55,6 +71,7 @@ function createBidOpportunityStore({ db }) {
         updated_at = excluded.updated_at
     `).run(
       opp.id,
+      opp.bidProjectId || getCurrentProjectId(),
       opp.projectName,
       opp.tenderNo || '',
       opp.clientName || '',

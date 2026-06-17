@@ -140,6 +140,72 @@ const defaultImageModelProfiles = {
   },
 };
 
+const defaultLayoutTemplate = {
+  id: 'standard-bid-a4',
+  name: '标准投标文件 A4',
+  industry: '通用',
+  page: {
+    size: 'A4',
+    margin_top_mm: 25,
+    margin_bottom_mm: 25,
+    margin_left_mm: 28,
+    margin_right_mm: 25,
+    gutter_mm: 0,
+  },
+  header: {
+    enabled: true,
+    text: '{项目名称}',
+    logo_path: '',
+  },
+  footer: {
+    enabled: true,
+    text: '{投标单位}',
+    page_number_format: '第 {page} 页 / 共 {pages} 页',
+  },
+  cover: {
+    title: '{项目名称}',
+    subtitle: '投标文件',
+    bidder_label: '投标单位',
+    tenderer_label: '招标单位',
+    date_label: '日期',
+    show_logo_placeholder: false,
+    logo_path: '',
+  },
+  toc: {
+    show_page_numbers: true,
+    page_number_format: '第 {page} 页 / 共 {pages} 页',
+    leader: 'dot',
+    max_level: 3,
+  },
+  preview: {
+    show_guides: true,
+    show_rulers: true,
+  },
+  typography: {
+    body_font: '宋体',
+    body_size_pt: 12,
+    line_spacing: 1.5,
+    first_line_indent_chars: 2,
+  },
+  headings: [
+    { level: 1, font: '黑体', size_pt: 22, bold: true, alignment: 'center', numbering: '一、' },
+    { level: 2, font: '黑体', size_pt: 16, bold: true, alignment: 'left', numbering: '（一）' },
+    { level: 3, font: '黑体', size_pt: 14, bold: true, alignment: 'left', numbering: '1.' },
+    { level: 4, font: '宋体', size_pt: 12, bold: true, alignment: 'left', numbering: '（1）' },
+  ],
+  tables: {
+    header_fill: 'F1F6FF',
+    border_color: 'DCDFF6',
+    repeat_header: true,
+    allow_page_break: true,
+  },
+  images: {
+    max_width_percent: 92,
+    align: 'center',
+    caption_enabled: true,
+  },
+};
+
 const defaultConfig = {
   text_model_provider: 'jinlong',
   text_model_profiles: defaultTextModelProfiles,
@@ -154,6 +220,8 @@ const defaultConfig = {
     provider: 'local',
     mineru_token: '',
   },
+  layout_template: defaultLayoutTemplate,
+  layout_templates: [defaultLayoutTemplate],
   developer_mode: false,
   _disabled_analytics_client_id: '',
   _disabled_analytics_created_at: '',
@@ -237,6 +305,114 @@ function normalizeImageModelProfiles(sourceProfiles) {
   return profiles;
 }
 
+function numberInRange(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function stringOrDefault(value, fallback = '') {
+  return String(value === undefined || value === null ? fallback : value);
+}
+
+function normalizeHeadingTemplate(sourceHeading, fallbackHeading) {
+  const source = sourceHeading && typeof sourceHeading === 'object' ? sourceHeading : {};
+  const fallback = fallbackHeading || {};
+  return {
+    level: numberInRange(source.level, fallback.level || 1, 1, 6),
+    font: stringOrDefault(source.font, fallback.font || '宋体'),
+    size_pt: numberInRange(source.size_pt, fallback.size_pt || 12, 8, 42),
+    bold: source.bold === undefined ? Boolean(fallback.bold) : Boolean(source.bold),
+    alignment: source.alignment === 'center' ? 'center' : 'left',
+    numbering: stringOrDefault(source.numbering, fallback.numbering || ''),
+  };
+}
+
+function normalizeTocLeader(value, fallback = 'dot') {
+  return ['dot', 'hyphen', 'underscore', 'middleDot', 'none'].includes(value) ? value : fallback;
+}
+
+function normalizeLayoutTemplate(template) {
+  const source = template && typeof template === 'object' ? template : {};
+  const fallback = defaultLayoutTemplate;
+  const headings = Array.isArray(source.headings) && source.headings.length
+    ? source.headings
+    : fallback.headings;
+  return {
+    id: stringOrDefault(source.id, fallback.id).trim() || fallback.id,
+    name: stringOrDefault(source.name, fallback.name).trim() || fallback.name,
+    industry: stringOrDefault(source.industry, fallback.industry).trim() || fallback.industry,
+    page: {
+      size: source.page?.size === 'A3' ? 'A3' : 'A4',
+      margin_top_mm: numberInRange(source.page?.margin_top_mm, fallback.page.margin_top_mm, 5, 60),
+      margin_bottom_mm: numberInRange(source.page?.margin_bottom_mm, fallback.page.margin_bottom_mm, 5, 60),
+      margin_left_mm: numberInRange(source.page?.margin_left_mm, fallback.page.margin_left_mm, 5, 60),
+      margin_right_mm: numberInRange(source.page?.margin_right_mm, fallback.page.margin_right_mm, 5, 60),
+      gutter_mm: numberInRange(source.page?.gutter_mm, fallback.page.gutter_mm, 0, 30),
+    },
+    header: {
+      enabled: source.header?.enabled === undefined ? fallback.header.enabled : Boolean(source.header.enabled),
+      text: stringOrDefault(source.header?.text, fallback.header.text),
+      logo_path: stringOrDefault(source.header?.logo_path, fallback.header.logo_path),
+    },
+    footer: {
+      enabled: source.footer?.enabled === undefined ? fallback.footer.enabled : Boolean(source.footer.enabled),
+      text: stringOrDefault(source.footer?.text, fallback.footer.text),
+      page_number_format: stringOrDefault(source.footer?.page_number_format, fallback.footer.page_number_format),
+    },
+    cover: {
+      title: stringOrDefault(source.cover?.title, fallback.cover.title),
+      subtitle: stringOrDefault(source.cover?.subtitle, fallback.cover.subtitle),
+      bidder_label: stringOrDefault(source.cover?.bidder_label, fallback.cover.bidder_label),
+      tenderer_label: stringOrDefault(source.cover?.tenderer_label, fallback.cover.tenderer_label),
+      date_label: stringOrDefault(source.cover?.date_label, fallback.cover.date_label),
+      show_logo_placeholder: source.cover?.show_logo_placeholder === undefined ? fallback.cover.show_logo_placeholder : Boolean(source.cover.show_logo_placeholder),
+      logo_path: stringOrDefault(source.cover?.logo_path, fallback.cover.logo_path),
+    },
+    toc: {
+      show_page_numbers: source.toc?.show_page_numbers === undefined ? fallback.toc.show_page_numbers : Boolean(source.toc.show_page_numbers),
+      page_number_format: stringOrDefault(source.toc?.page_number_format, fallback.toc.page_number_format),
+      leader: normalizeTocLeader(source.toc?.leader, fallback.toc.leader),
+      max_level: numberInRange(source.toc?.max_level, fallback.toc.max_level, 1, 6),
+    },
+    preview: {
+      show_guides: source.preview?.show_guides === undefined ? fallback.preview.show_guides : Boolean(source.preview.show_guides),
+      show_rulers: source.preview?.show_rulers === undefined ? fallback.preview.show_rulers : Boolean(source.preview.show_rulers),
+    },
+    typography: {
+      body_font: stringOrDefault(source.typography?.body_font, fallback.typography.body_font),
+      body_size_pt: numberInRange(source.typography?.body_size_pt, fallback.typography.body_size_pt, 8, 22),
+      line_spacing: numberInRange(source.typography?.line_spacing, fallback.typography.line_spacing, 1, 3),
+      first_line_indent_chars: numberInRange(source.typography?.first_line_indent_chars, fallback.typography.first_line_indent_chars, 0, 4),
+    },
+    headings: headings.slice(0, 6).map((heading, index) => normalizeHeadingTemplate(heading, fallback.headings[index] || fallback.headings[fallback.headings.length - 1])),
+    tables: {
+      header_fill: stringOrDefault(source.tables?.header_fill, fallback.tables.header_fill).replace(/^#/, '').slice(0, 6) || fallback.tables.header_fill,
+      border_color: stringOrDefault(source.tables?.border_color, fallback.tables.border_color).replace(/^#/, '').slice(0, 6) || fallback.tables.border_color,
+      repeat_header: source.tables?.repeat_header === undefined ? fallback.tables.repeat_header : Boolean(source.tables.repeat_header),
+      allow_page_break: source.tables?.allow_page_break === undefined ? fallback.tables.allow_page_break : Boolean(source.tables.allow_page_break),
+    },
+    images: {
+      max_width_percent: numberInRange(source.images?.max_width_percent, fallback.images.max_width_percent, 20, 100),
+      align: source.images?.align === 'left' ? 'left' : 'center',
+      caption_enabled: source.images?.caption_enabled === undefined ? fallback.images.caption_enabled : Boolean(source.images.caption_enabled),
+    },
+  };
+}
+
+function normalizeLayoutTemplates(sourceTemplates, activeTemplate) {
+  const templates = Array.isArray(sourceTemplates) && sourceTemplates.length
+    ? sourceTemplates.map(normalizeLayoutTemplate)
+    : [normalizeLayoutTemplate(activeTemplate || defaultLayoutTemplate)];
+  const seen = new Set();
+  const uniqueTemplates = templates.filter((template) => {
+    if (seen.has(template.id)) return false;
+    seen.add(template.id);
+    return true;
+  });
+  return uniqueTemplates.length ? uniqueTemplates : [defaultLayoutTemplate];
+}
+
 function normalizeConfig(config) {
   const source = config || {};
   const fileParser = source.file_parser ? source.file_parser : {};
@@ -253,6 +429,12 @@ function normalizeConfig(config) {
   const imageModelProfiles = normalizeImageModelProfiles(source.image_model_profiles);
   imageModelProfiles[imageModelProvider] = normalizeImageModelProfile(imageModelProvider, sourceImageModel);
   const activeImageProfile = imageModelProfiles[imageModelProvider];
+  const layoutTemplates = normalizeLayoutTemplates(source.layout_templates, source.layout_template);
+  const sourceLayoutTemplate = normalizeLayoutTemplate(source.layout_template || layoutTemplates[0]);
+  const activeLayoutTemplate = source.layout_template ? sourceLayoutTemplate : layoutTemplates.find((template) => template.id === sourceLayoutTemplate.id) || sourceLayoutTemplate;
+  const mergedLayoutTemplates = layoutTemplates.some((template) => template.id === activeLayoutTemplate.id)
+    ? layoutTemplates.map((template) => template.id === activeLayoutTemplate.id ? activeLayoutTemplate : template)
+    : [activeLayoutTemplate, ...layoutTemplates];
 
   return {
     ...defaultConfig,
@@ -267,6 +449,8 @@ function normalizeConfig(config) {
       provider: fileParser.provider || defaultConfig.file_parser.provider,
       mineru_token: fileParser.mineru_token || defaultConfig.file_parser.mineru_token,
     },
+    layout_template: activeLayoutTemplate,
+    layout_templates: mergedLayoutTemplates,
     developer_mode: source.developer_mode === undefined ? defaultConfig.developer_mode : Boolean(source.developer_mode),
     _disabled_analytics_client_id: source._disabled_analytics_client_id || defaultConfig._disabled_analytics_client_id,
     _disabled_analytics_created_at: source._disabled_analytics_created_at || defaultConfig._disabled_analytics_created_at,
@@ -335,6 +519,8 @@ function createConfigStore(app) {
             ...currentConfig.image_model_profiles,
             ...(config && config.image_model_profiles ? config.image_model_profiles : {}),
           },
+          layout_templates: config?.layout_templates || currentConfig.layout_templates,
+          layout_template: config?.layout_template || currentConfig.layout_template,
           _disabled_analytics_client_id: config?._disabled_analytics_client_id || currentConfig._disabled_analytics_client_id,
           _disabled_analytics_created_at: config?._disabled_analytics_created_at || currentConfig._disabled_analytics_created_at,
         }));

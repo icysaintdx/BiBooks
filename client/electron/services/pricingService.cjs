@@ -1,25 +1,12 @@
-/**
- * 报价计算模块
- * 管理投标报价明细、计算汇总、生成报价表格
- * 数据纯本地存储，不经过任何外部服务
- */
+'use strict';
 
-const { logInfo, logError } = require('../utils/logger.cjs');
-
-/**
- * 创建新的报价单
- * @param {object} params
- * @param {string} params.projectName - 项目名称
- * @param {string} params.bidProjectId - 关联的标书项目ID
- * @returns {object} 报价单基础结构
- */
 function createPricingSheet({ projectName = '', bidProjectId = '' } = {}) {
   return {
     id: generateId(),
     bidProjectId,
     projectName,
     currency: 'CNY',
-    taxRate: 0.13, // 默认增值税率 13%
+    taxRate: 0.13,
     discountRate: 0,
     items: [],
     notes: '',
@@ -28,11 +15,6 @@ function createPricingSheet({ projectName = '', bidProjectId = '' } = {}) {
   };
 }
 
-/**
- * 创建报价明细项
- * @param {object} params
- * @returns {object} 报价项
- */
 function createPricingItem({
   category = '',
   name = '',
@@ -44,58 +26,44 @@ function createPricingItem({
 } = {}) {
   return {
     id: generateId(),
-    category, // 分类（如：设备费、人工费、材料费）
-    name, // 名称
-    specification, // 规格型号
-    unit, // 单位
-    quantity: Number(quantity) || 0, // 数量
-    unitPrice: Number(unitPrice) || 0, // 单价
-    subtotal: 0, // 小计（自动计算）
+    category,
+    name,
+    specification,
+    unit,
+    quantity: Number(quantity) || 0,
+    unitPrice: Number(unitPrice) || 0,
+    subtotal: 0,
     notes,
   };
 }
 
-/**
- * 计算单个小计
- * @param {object} item - 报价项
- * @returns {number} 小计金额
- */
 function calculateItemSubtotal(item) {
-  return roundMoney(item.quantity * item.unitPrice);
+  return roundMoney((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
 }
 
-/**
- * 计算报价单汇总
- * @param {object} sheet - 报价单
- * @returns {object} 汇总信息
- */
 function calculatePricingSummary(sheet) {
-  // 更新每个项的小计
-  for (const item of sheet.items) {
+  for (const item of sheet.items || []) {
     item.subtotal = calculateItemSubtotal(item);
   }
 
-  const subtotalBeforeTax = sheet.items.reduce((sum, item) => sum + item.subtotal, 0);
+  const subtotalBeforeTax = (sheet.items || []).reduce((sum, item) => sum + item.subtotal, 0);
   const discountAmount = roundMoney(subtotalBeforeTax * (sheet.discountRate || 0));
-  const afterDiscount = subtotalBeforeTax - discountAmount;
+  const afterDiscount = roundMoney(subtotalBeforeTax - discountAmount);
   const taxAmount = roundMoney(afterDiscount * (sheet.taxRate || 0));
   const totalAmount = roundMoney(afterDiscount + taxAmount);
 
-  // 按分类汇总
   const categorySummary = {};
-  for (const item of sheet.items) {
-    const cat = item.category || '未分类';
-    if (!categorySummary[cat]) {
-      categorySummary[cat] = { name: cat, subtotal: 0, itemCount: 0 };
-    }
-    categorySummary[cat].subtotal += item.subtotal;
-    categorySummary[cat].itemCount++;
+  for (const item of sheet.items || []) {
+    const category = item.category || '未分类';
+    if (!categorySummary[category]) categorySummary[category] = { name: category, subtotal: 0, itemCount: 0 };
+    categorySummary[category].subtotal = roundMoney(categorySummary[category].subtotal + item.subtotal);
+    categorySummary[category].itemCount += 1;
   }
 
   sheet.updatedAt = new Date().toISOString();
 
   return {
-    itemCount: sheet.items.length,
+    itemCount: (sheet.items || []).length,
     subtotalBeforeTax: roundMoney(subtotalBeforeTax),
     discountRate: sheet.discountRate || 0,
     discountAmount,
@@ -104,17 +72,10 @@ function calculatePricingSummary(sheet) {
     taxAmount,
     totalAmount,
     categories: Object.values(categorySummary),
-    // 大写金额
     totalAmountChinese: numberToChinese(totalAmount),
   };
 }
 
-/**
- * 添加报价项到报价单
- * @param {object} sheet - 报价单
- * @param {object} itemParams - 报价项参数
- * @returns {object} 更新后的报价单
- */
 function addPricingItem(sheet, itemParams) {
   const item = createPricingItem(itemParams);
   item.subtotal = calculateItemSubtotal(item);
@@ -123,76 +84,53 @@ function addPricingItem(sheet, itemParams) {
   return sheet;
 }
 
-/**
- * 更新报价项
- * @param {object} sheet - 报价单
- * @param {string} itemId - 报价项ID
- * @param {object} updates - 更新内容
- * @returns {object} 更新后的报价单
- */
 function updatePricingItem(sheet, itemId, updates) {
-  const item = sheet.items.find((i) => i.id === itemId);
+  const item = sheet.items.find((candidate) => candidate.id === itemId);
   if (!item) throw new Error(`报价项不存在: ${itemId}`);
-
   Object.assign(item, updates);
   item.subtotal = calculateItemSubtotal(item);
   sheet.updatedAt = new Date().toISOString();
   return sheet;
 }
 
-/**
- * 删除报价项
- * @param {object} sheet - 报价单
- * @param {string} itemId - 报价项ID
- * @returns {object} 更新后的报价单
- */
 function removePricingItem(sheet, itemId) {
-  sheet.items = sheet.items.filter((i) => i.id !== itemId);
+  sheet.items = sheet.items.filter((item) => item.id !== itemId);
   sheet.updatedAt = new Date().toISOString();
   return sheet;
 }
 
-/**
- * 生成 Markdown 格式的报价表格
- * @param {object} sheet - 报价单
- * @returns {string} Markdown 表格文本
- */
 function generatePricingTableMarkdown(sheet) {
   const summary = calculatePricingSummary(sheet);
-
   const lines = [];
-  lines.push(`## 报价明细表`);
+  lines.push('## 报价明细表');
   lines.push('');
-  lines.push(`**项目名称**: ${sheet.projectName}`);
-  lines.push(`**币种**: 人民币（CNY）`);
+  lines.push(`**项目名称**: ${sheet.projectName || '未填写'}`);
+  lines.push('**币种**: 人民币（CNY）');
   lines.push('');
 
-  // 按分类分组输出
-  const grouped = groupByCategory(sheet.items);
-
+  const grouped = groupByCategory(sheet.items || []);
   for (const [category, items] of Object.entries(grouped)) {
     lines.push(`### ${category}`);
     lines.push('');
     lines.push('| 序号 | 名称 | 规格型号 | 单位 | 数量 | 单价（元） | 小计（元） |');
     lines.push('|------|------|----------|------|------|------------|------------|');
-
-    items.forEach((item, idx) => {
-      lines.push(`| ${idx + 1} | ${item.name} | ${item.specification || '-'} | ${item.unit || '-'} | ${item.quantity} | ${formatMoney(item.unitPrice)} | ${formatMoney(item.subtotal)} |`);
+    items.forEach((item, index) => {
+      lines.push(`| ${index + 1} | ${item.name} | ${item.specification || '-'} | ${item.unit || '-'} | ${item.quantity} | ${formatMoney(item.unitPrice)} | ${formatMoney(item.subtotal)} |`);
     });
-
-    const catSubtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
-    lines.push(`| | | | | | **小计** | **${formatMoney(catSubtotal)}** |`);
+    const categorySubtotal = items.reduce((sum, item) => sum + item.subtotal, 0);
+    lines.push(`| | | | | | **小计** | **${formatMoney(categorySubtotal)}** |`);
     lines.push('');
   }
 
   lines.push('### 汇总');
   lines.push('');
+  lines.push(`- 税前小计: **${formatMoney(summary.subtotalBeforeTax)}** 元`);
+  if (summary.discountRate > 0) lines.push(`- 优惠率: **${(summary.discountRate * 100).toFixed(1)}%**`);
+  if (summary.discountAmount > 0) lines.push(`- 优惠金额: **${formatMoney(summary.discountAmount)}** 元`);
+  lines.push(`- 税率: **${(summary.taxRate * 100).toFixed(0)}%**`);
+  lines.push(`- 税额: **${formatMoney(summary.taxAmount)}** 元`);
   lines.push(`- 含税合计: **${formatMoney(summary.totalAmount)}** 元`);
   lines.push(`- 大写金额: **${summary.totalAmountChinese}**`);
-  lines.push(`- 税率: ${(summary.taxRate * 100).toFixed(0)}%`);
-  if (summary.discountRate > 0) {
-    lines.push(`- 优惠率: ${(summary.discountRate * 100).toFixed(1)}%`);
-  }
   lines.push('');
 
   if (sheet.notes) {
@@ -204,11 +142,6 @@ function generatePricingTableMarkdown(sheet) {
   return lines.join('\n');
 }
 
-/**
- * 将报价单导出为可存储的 JSON 对象（不含敏感字段的脱敏版本）
- * @param {object} sheet - 报价单
- * @returns {object} 脱敏后的报价单
- */
 function exportPricingForStorage(sheet) {
   return {
     id: sheet.id,
@@ -225,106 +158,89 @@ function exportPricingForStorage(sheet) {
   };
 }
 
-// ========== 内部工具函数 ==========
-
-/**
- * 金额四舍五入到分
- * @param {number} amount
- * @returns {number}
- */
 function roundMoney(amount) {
-  return Math.round(amount * 100) / 100;
+  return Math.round((Number(amount) || 0) * 100) / 100;
 }
 
-/**
- * 格式化金额显示
- * @param {number} amount
- * @returns {string}
- */
 function formatMoney(amount) {
-  return amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (Number(amount) || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/**
- * 按分类分组
- * @param {Array} items
- * @returns {object}
- */
 function groupByCategory(items) {
   const groups = {};
   for (const item of items) {
-    const cat = item.category || '未分类';
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(item);
+    const category = item.category || '未分类';
+    if (!groups[category]) groups[category] = [];
+    groups[category].push(item);
   }
   return groups;
 }
 
-/**
- * 金额数字转中文大写
- * @param {number} amount
- * @returns {string}
- */
 function numberToChinese(amount) {
   const digits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
   const units = ['', '拾', '佰', '仟'];
-  const bigUnits = ['', '万', '亿'];
+  const bigUnits = ['', '万', '亿', '兆'];
+  const value = Math.round((Number(amount) || 0) * 100);
+  if (value === 0) return '零元整';
 
-  if (amount === 0) return '零元整';
-
-  const intPart = Math.floor(amount);
-  const decPart = Math.round((amount - intPart) * 100);
-  const jiao = Math.floor(decPart / 10);
-  const fen = decPart % 10;
-
+  const integer = Math.floor(value / 100);
+  const decimal = value % 100;
   let result = '';
 
-  if (intPart > 0) {
-    const intStr = String(intPart);
+  if (integer > 0) {
     const groups = [];
-    for (let i = intStr.length; i > 0; i -= 4) {
-      groups.unshift(intStr.slice(Math.max(0, i - 4), i));
+    let rest = integer;
+    while (rest > 0) {
+      groups.unshift(rest % 10000);
+      rest = Math.floor(rest / 10000);
     }
 
-    for (let g = 0; g < groups.length; g++) {
-      const group = groups[g];
-      let groupStr = '';
-      let hasNonZero = false;
-
-      for (let i = 0; i < group.length; i++) {
-        const d = Number(group[i]);
-        const unitIdx = group.length - 1 - i;
-
-        if (d === 0) {
-          if (hasNonZero) groupStr += '零';
-        } else {
-          groupStr += digits[d] + units[unitIdx];
-          hasNonZero = true;
-        }
+    let zeroPending = false;
+    groups.forEach((group, groupIndex) => {
+      if (group === 0) {
+        zeroPending = true;
+        return;
       }
-
-      if (groupStr) {
-        result += groupStr + bigUnits[groups.length - 1 - g];
-      }
-    }
-
+      if (zeroPending && !result.endsWith('零')) result += '零';
+      result += convertFourDigits(group, digits, units);
+      result += bigUnits[groups.length - 1 - groupIndex] || '';
+      zeroPending = group < 1000;
+    });
     result += '元';
   }
 
+  const jiao = Math.floor(decimal / 10);
+  const fen = decimal % 10;
   if (jiao === 0 && fen === 0) {
     result += '整';
   } else {
     if (jiao > 0) result += digits[jiao] + '角';
-    if (fen > 0) result += digits[fen] + '分';
+    if (fen > 0) {
+      if (jiao === 0 && integer > 0) result += '零';
+      result += digits[fen] + '分';
+    }
   }
 
-  return result;
+  return result.replace(/零+/g, '零').replace(/零元/, '元');
 }
 
-/**
- * 生成简单唯一ID
- * @returns {string}
- */
+function convertFourDigits(number, digits, units) {
+  const chars = String(number).padStart(4, '0').split('').map(Number);
+  let text = '';
+  let zeroPending = false;
+  chars.forEach((digit, index) => {
+    const unitIndex = 3 - index;
+    if (digit === 0) {
+      zeroPending = text.length > 0;
+      return;
+    }
+    if (zeroPending && !text.endsWith('零')) text += '零';
+    text += digits[digit] + units[unitIndex];
+    zeroPending = false;
+  });
+  return text;
+}
+
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
