@@ -75,6 +75,13 @@ function ExportArchivePage({
   }, [previewMarkdown]);
 
   const previewStats = useMemo(() => buildPreviewStats(draft), [draft]);
+  const exportNoticeLines = useMemo(() => {
+    const lines = [...previewWarnings];
+    if (exportBlocked && exportBlockReason && !lines.includes(exportBlockReason)) {
+      lines.push(exportBlockReason);
+    }
+    return lines;
+  }, [exportBlocked, exportBlockReason, previewWarnings]);
 
   const insertTextBlock = () => {
     setDraft((prev) => insertAtCursor(prev, '\n## 新增文字章节\n\n请在这里填写需要追加的文字内容。\n', insertPosition.start, insertPosition.end));
@@ -143,8 +150,8 @@ function ExportArchivePage({
 
   return (
     <div className="plan-step-body export-archive-page">
-      <section className="delivery-check-hero">
-        <div>
+      <section className="delivery-check-hero export-archive-hero">
+        <div className="export-archive-hero-copy">
           <span className="section-kicker">STEP 08</span>
           <strong>合并预览与导出归档</strong>
           <p>这里是导出前最后一层。可以预览完整标书草稿、手动编辑、插入文字/图片/表格，或让 AI 只针对选中文字改写。正式 Word/PDF 只输出最终稿，内部标记不会写入正式文件。</p>
@@ -170,24 +177,41 @@ function ExportArchivePage({
       </section>
 
       <section className="export-preview-panel">
-        <div className="delivery-check-panel-head">
-          <div>
+        <div className="export-preview-head">
+          <div className="export-preview-head-main">
             <span className="section-kicker">合并前预览编辑</span>
-            <h3>完整标书草稿</h3>
+            <div className="export-preview-title-row">
+              <h3>完整标书草稿</h3>
+              <div className="export-preview-stats">
+                <span><strong>{previewStats.words}</strong> 字符</span>
+                <span><strong>{previewStats.headings}</strong> 标题</span>
+                <span><strong>{previewStats.tables}</strong> 表格行</span>
+                <span><strong>{previewStats.images}</strong> 图片</span>
+              </div>
+            </div>
+          </div>
+          <div className="export-preview-head-actions">
+            <button type="button" className="secondary-action" onClick={() => void onRefreshPreview()} disabled={previewLoading || exporting}>
+              {previewLoading ? '正在合成...' : '重新合成'}
+            </button>
+            <button type="button" className="secondary-action" onClick={toggleMode}>
+              {mode === 'edit' ? '返回页面预览' : '编辑草稿'}
+            </button>
+            <button type="button" className="secondary-action" onClick={saveDraft} disabled={!draft.trim()}>
+              保存草稿
+            </button>
+            <button type="button" className="secondary-action" onClick={onBackToCheck}>返回交付检查</button>
+            <button type="button" className="secondary-action" onClick={onOpenVersions}>打开版本审阅</button>
+            <button type="button" className="primary-action" onClick={() => onExportWord(draft)} disabled={exporting || exportBlocked || !outlineData || !draft.trim()}>
+              {exporting ? '导出中...' : exportBlocked ? '请先补齐' : '导出完整标书 Word'}
+            </button>
           </div>
         </div>
 
-        <div className="export-preview-stats">
-          <span><strong>{previewStats.words}</strong> 字符</span>
-          <span><strong>{previewStats.headings}</strong> 标题</span>
-          <span><strong>{previewStats.tables}</strong> 表格行</span>
-          <span><strong>{previewStats.images}</strong> 图片</span>
-        </div>
-
-        {previewWarnings.length > 0 && (
-          <div className="export-warning-list export-preview-warnings">
+        {exportNoticeLines.length > 0 && (
+          <div className="export-warning-list export-preview-alert" role="status" aria-live="polite">
             <strong>导出前需要核对</strong>
-            {previewWarnings.map((warning) => <small key={warning}>{warning}</small>)}
+            {exportNoticeLines.map((warning) => <small key={warning}>{warning}</small>)}
           </div>
         )}
 
@@ -212,7 +236,7 @@ function ExportArchivePage({
               value={draft}
               onChange={setDraft}
               onSelectionChange={setInsertPosition}
-              placeholder="合并后的完整标书内容草稿。此处作为内容层编辑，右侧页面预览会套用当前版式模板。"
+              placeholder="合并后的完整标书内容草稿。此处作为内容层编辑，页面预览会套用当前版式模板。"
             />
           </div>
         ) : (
@@ -221,29 +245,9 @@ function ExportArchivePage({
             layoutTemplate={layoutTemplate}
             projectName={outlineData?.project_name || ''}
             bidderName={bidderName || ''}
-            toolbarActions={(
-              <div className="export-preview-actions">
-                <button type="button" className="secondary-action" onClick={() => void onRefreshPreview()} disabled={previewLoading || exporting}>
-                  {previewLoading ? '正在合成...' : '重新合成'}
-                </button>
-                <button type="button" className="secondary-action" onClick={toggleMode}>
-                  编辑草稿
-                </button>
-                <button type="button" className="primary-action" onClick={saveDraft} disabled={!draft.trim()}>保存草稿</button>
-              </div>
-            )}
           />
         )}
       </section>
-
-      <section className="delivery-check-actions">
-        <button type="button" className="secondary-action" onClick={onBackToCheck}>返回交付检查</button>
-        <button type="button" className="secondary-action" onClick={onOpenVersions}>打开版本审阅</button>
-        <button type="button" className="primary-action" onClick={() => onExportWord(draft)} disabled={exporting || exportBlocked || !outlineData || !draft.trim()}>
-          {exporting ? '导出中...' : exportBlocked ? '请先补齐' : '导出完整标书 Word'}
-        </button>
-      </section>
-      {exportBlocked && exportBlockReason && <div className="export-warning-list export-preview-warnings"><strong>当前禁止导出</strong><small>{exportBlockReason}</small></div>}
     </div>
   );
 }

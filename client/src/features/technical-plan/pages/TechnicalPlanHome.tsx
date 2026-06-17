@@ -1396,7 +1396,7 @@ function TechnicalPlanHome({ onNavigateSection }: TechnicalPlanHomeProps) {
         </Dialog.Portal>
       </Dialog.Root>
 
-      <FloatingToolbar groups={toolbarGroups} label="技术方案工具条" />
+      {state.step !== 'export-archive' && <FloatingToolbar groups={toolbarGroups} label="技术方案工具条" />}
     </div>
   );
 }

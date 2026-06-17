@@ -2302,7 +2302,7 @@ button {
 .export-archive-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -2322,6 +2322,14 @@ button {
   border: 1px solid rgba(220, 223, 230, 0.88);
   border-radius: 24px;
   box-shadow: 0 20px 48px rgba(33, 116, 253, 0.08);
+}
+
+.export-archive-hero {
+  padding: 14px 18px;
+}
+
+.export-archive-hero-copy p {
+  max-width: 1120px;
 }
 
 .delivery-check-hero strong {
@@ -2623,13 +2631,47 @@ button {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
-  padding: 14px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(220, 223, 230, 0.88);
   border-radius: 28px;
   box-shadow: var(--yb-shadow);
+}
+
+.export-preview-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.export-preview-head-main {
+  min-width: 0;
+}
+
+.export-preview-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 4px;
+}
+
+.export-preview-title-row h3 {
+  margin: 0;
+  color: var(--yb-text);
+  font-size: 20px;
+}
+
+.export-preview-head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .export-preview-actions,
@@ -2642,7 +2684,8 @@ button {
 }
 
 .export-preview-tools {
-  padding: 10px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
   background: #f8fbff;
   border: 1px solid var(--yb-border-soft);
   border-radius: 16px;
@@ -2651,7 +2694,7 @@ button {
 .export-preview-tools input {
   min-width: min(420px, 100%);
   flex: 1 1 300px;
-  min-height: 42px;
+  min-height: 38px;
   padding: 0 14px;
   color: var(--yb-text);
   background: #ffffff;
@@ -2663,8 +2706,8 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 0 10px;
   color: var(--yb-text-soft);
   font-size: 12px;
   background: #f8fafc;
@@ -2697,11 +2740,28 @@ button {
   margin: 0;
 }
 
+.export-preview-alert {
+  position: absolute;
+  z-index: 12;
+  top: 72px;
+  right: 24px;
+  width: min(460px, calc(100% - 48px));
+  box-shadow: 0 18px 42px rgba(138, 91, 4, 0.12);
+}
+
+.export-preview-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
 .paged-preview-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  height: min(88vh, 980px);
-  min-height: 620px;
+  height: min(74vh, 980px);
+  min-height: 680px;
   overflow: hidden;
   background: #eef2f7;
   border: 1px solid var(--yb-border-soft);
@@ -2714,7 +2774,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 14px;
   color: var(--yb-text-soft);
   font-size: 12px;
   background: #ffffff;
@@ -2738,9 +2798,9 @@ button {
 
 .paged-preview-toolbar span {
   display: inline-flex;
-  min-height: 28px;
+  min-height: 24px;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 9px;
   background: #f8fafc;
   border: 1px solid var(--yb-border-soft);
   border-radius: 999px;
@@ -2751,7 +2811,7 @@ button {
   min-height: 0;
   overflow: auto;
   gap: 18px;
-  padding: 16px 18px 32px;
+  padding: 16px 18px 96px;
 }
 
 .paged-preview-page-wrap {
