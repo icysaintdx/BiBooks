@@ -16,7 +16,7 @@ import { useTechnicalPlanWorkflow } from '../hooks/useTechnicalPlanWorkflow';
 import { getBidAnalysisTasks } from '../services/bidAnalysisWorkflow';
 import { FloatingToolbar, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, BidAnalysisTasks, ContentGenerationOptions, GlobalFactGroupState, TechnicalPlanState, TechnicalPlanStep } from '../types';
-import type { RepairTask, RepairTaskInput } from '../../../shared/types/ipc';
+import type { BidProjectSummary, RepairTask, RepairTaskInput } from '../../../shared/types/ipc';
 import type { LayoutTemplateConfig, OutlineData, OutlineItem, WordExportProgressEvent } from '../../../shared/types';
 import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
 
@@ -395,6 +395,7 @@ interface ExportProgressState {
 }
 
 interface TechnicalPlanHomeProps {
+  currentProject?: BidProjectSummary | null;
   onNavigateSection?: (section: 'business-bid' | 'pricing' | 'duplicate-check' | 'compliance-check') => void;
 }
 
@@ -520,7 +521,7 @@ function buildTechnicalRepairTask(item: OutlineItem, content: string): RepairTas
   return null;
 }
 
-function TechnicalPlanHome({ onNavigateSection }: TechnicalPlanHomeProps) {
+function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanHomeProps) {
   const { hydrated, state, setState } = useTechnicalPlanWorkflow();
   const { showToast } = useToast();
   const [tenderMarkdown, setTenderMarkdown] = useState('');
@@ -1139,6 +1140,10 @@ function TechnicalPlanHome({ onNavigateSection }: TechnicalPlanHomeProps) {
           tenderFile={state.tenderFile}
           tenderMarkdown={tenderMarkdown}
           parseQuality={state.tenderParseQuality}
+          projectTenderFile={currentProject?.tenderFilePath ? {
+            fileName: currentProject.tenderFileName || '',
+            filePath: currentProject.tenderFilePath,
+          } : null}
           onFileImported={(nextState, markdown) => {
             setState((prev) => ({ ...prev, ...nextState }));
             setTenderMarkdown(markdown);

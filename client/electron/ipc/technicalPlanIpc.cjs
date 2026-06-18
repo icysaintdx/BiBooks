@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 
 function registerTechnicalPlanIpc({ technicalPlanStore, sourceAnnotationStore }) {
   ipcMain.handle('technical-plan:load-state', () => technicalPlanStore.loadTechnicalPlan());
-  ipcMain.handle('technical-plan:import-tender-document', () => technicalPlanStore.importTenderDocument());
+  ipcMain.handle('technical-plan:import-tender-document', (_event, options) => technicalPlanStore.importTenderDocument(options));
   ipcMain.handle('technical-plan:read-tender-markdown', () => technicalPlanStore.readTenderMarkdown());
   ipcMain.handle('technical-plan:update-step', (_event, step) => technicalPlanStore.updateStep(step));
   ipcMain.handle('technical-plan:save-outline-config', (_event, payload) => technicalPlanStore.saveOutlineConfig(payload));

@@ -16,6 +16,7 @@ interface DocumentAnalysisPageProps {
   tenderFile: TechnicalPlanTenderFile | null;
   tenderMarkdown: string;
   parseQuality?: TenderParseQuality;
+  projectTenderFile?: { fileName: string; filePath: string } | null;
   onFileImported: (state: TechnicalPlanState, markdown: string) => void;
 }
 
@@ -56,6 +57,7 @@ function DocumentAnalysisPage({
   tenderFile,
   tenderMarkdown,
   parseQuality,
+  projectTenderFile,
   onFileImported,
 }: DocumentAnalysisPageProps) {
   const [parserLabel, setParserLabel] = useState(parserLabels.local);
@@ -88,10 +90,10 @@ function DocumentAnalysisPage({
     };
   }, [showToast]);
 
-  const importDocument = async () => {
+  const importDocument = async (sourcePath?: string) => {
     try {
       setBusy(true);
-      const result = await window.yibiao?.technicalPlan.importTenderDocument();
+      const result = await window.yibiao?.technicalPlan.importTenderDocument(sourcePath ? { sourcePath } : undefined);
 
       if (!result?.success || !result.markdown) {
         const message = result?.message || '未导入文件';
@@ -129,11 +131,26 @@ function DocumentAnalysisPage({
           <p>当前解析方案：{parserLabel}</p>
         </div>
         <div className="analysis-actions">
-          <button type="button" className="primary-action" onClick={importDocument} disabled={busy}>
+          {projectTenderFile?.filePath && !tenderFile && (
+            <button type="button" className="secondary-action" onClick={() => importDocument(projectTenderFile.filePath)} disabled={busy}>
+              使用项目招标文件
+            </button>
+          )}
+          <button type="button" className="primary-action" onClick={() => importDocument()} disabled={busy}>
             {busy ? '解析中...' : tenderFile ? '重新选择文件' : '选择文件'}
           </button>
         </div>
       </section>
+
+      {projectTenderFile?.filePath && !tenderFile && (
+        <section className="analysis-project-file-card">
+          <div>
+            <strong>当前项目已绑定招标文件</strong>
+            <p>{projectTenderFile.fileName || projectTenderFile.filePath}</p>
+          </div>
+          <span>可直接使用项目创建时复制到项目目录中的文件，也可以重新选择文件替换本次解析。</span>
+        </section>
+      )}
 
       <section className="analysis-markdown-card">
         <div className="analysis-result-head">

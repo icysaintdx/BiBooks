@@ -388,7 +388,7 @@ export interface YibiaoBridge {
   };
   technicalPlan: {
     loadState: () => Promise<TechnicalPlanState>;
-    importTenderDocument: () => Promise<{ success: boolean; message?: string; state: TechnicalPlanState; markdown: string }>;
+    importTenderDocument: (options?: { sourcePath?: string }) => Promise<{ success: boolean; message?: string; state: TechnicalPlanState; markdown: string }>;
     readTenderMarkdown: () => Promise<string>;
     updateStep: (step: TechnicalPlanStep) => Promise<TechnicalPlanState>;
     saveOutlineConfig: (payload: { outlineMode: OutlineMode; referenceKnowledgeDocumentIds: string[] }) => Promise<TechnicalPlanState>;

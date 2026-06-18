@@ -59,7 +59,12 @@ function AppRouter({
         />
       );
     case 'technical-plan':
-      return <TechnicalPlanHome onNavigateSection={onSectionChange} />;
+      return (
+        <TechnicalPlanHome
+          currentProject={projects.find((project) => project.id === currentProjectId) || null}
+          onNavigateSection={onSectionChange}
+        />
+      );
     case 'business-bid':
       return <BusinessBidPage />;
     case 'pricing':

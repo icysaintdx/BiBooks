@@ -84,7 +84,7 @@ const bridge = {
   },
   technicalPlan: {
     loadState: () => ipcRenderer.invoke('technical-plan:load-state'),
-    importTenderDocument: () => ipcRenderer.invoke('technical-plan:import-tender-document'),
+    importTenderDocument: (options) => ipcRenderer.invoke('technical-plan:import-tender-document', options),
     readTenderMarkdown: () => ipcRenderer.invoke('technical-plan:read-tender-markdown'),
     updateStep: (step) => ipcRenderer.invoke('technical-plan:update-step', step),
     saveOutlineConfig: (payload) => ipcRenderer.invoke('technical-plan:save-outline-config', payload),

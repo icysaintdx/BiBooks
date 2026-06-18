@@ -584,10 +584,63 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
   return result;
 }
 
+async function importDocumentByPath(app, config, filePath) {
+  if (!filePath) {
+    return { success: false, message: '未选择文件' };
+  }
+
+  try {
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile()) {
+      return { success: false, message: '选择的路径不是有效文件' };
+    }
+  } catch {
+    return { success: false, message: '项目绑定的招标文件不存在，请重新选择文件' };
+  }
+
+  const provider = config.file_parser?.provider || 'local';
+  const supportedExtensions = getSelectableExtensions(provider);
+  const ext = path.extname(filePath).toLowerCase();
+  const parser = resolveFileParser(config, filePath);
+
+  if (!supportedExtensions.has(ext)) {
+    return { success: false, message: `当前${parserLabels[provider] || '解析方式'}不支持该文件格式` };
+  }
+
+  let fileContent = '';
+  try {
+    fileContent = (await parseDocumentWithConfig(app, filePath, config, { assetScope: 'technical-plan', preserveImages: false })).trim();
+  } catch (error) {
+    return {
+      success: false,
+      message: formatImportError(error, filePath),
+      file_name: path.basename(filePath),
+      parser_provider: parser.provider,
+      parser_label: parserLabels[parser.provider] || '本地解析',
+    };
+  }
+
+  if (!fileContent) {
+    return { success: false, message: '未提取到有效 Markdown 内容，请检查文件内容' };
+  }
+
+  return {
+    success: true,
+    message: parser.fallbackToLocal ? '文件解析完成，当前格式已自动使用本地解析' : '文件解析完成',
+    file_content: fileContent,
+    file_name: path.basename(filePath),
+    parser_provider: parser.provider,
+    parser_label: parserLabels[parser.provider] || '本地解析',
+  };
+}
+
 function createFileService({ app, configStore } = {}) {
   return {
-    async importDocument() {
+    async importDocument(options = {}) {
       const config = configStore ? configStore.load() : { file_parser: { provider: 'local' } };
+      if (options.sourcePath) {
+        return importDocumentByPath(app, config, options.sourcePath);
+      }
       const provider = config.file_parser?.provider || 'local';
       const supportedExtensions = getSelectableExtensions(provider);
       const result = await dialog.showOpenDialog({

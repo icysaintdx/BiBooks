@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import './ProjectManagementPage.css';
 import type { BidProjectSummary, TenderFileSelectionResult } from '../../../shared/types/ipc';
 import type { SectionId } from '../../../shared/types/navigation';
@@ -66,6 +66,8 @@ export default function ProjectManagementPage({
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectingTenderFile, setSelectingTenderFile] = useState(false);
+  const selectingTenderFileRef = useRef(false);
 
   const visibleProjects = useMemo(
     () => projects.filter((project) => (showRecycleBin ? Boolean(project.deletedAt) : !project.deletedAt)),
@@ -79,8 +81,20 @@ export default function ProjectManagementPage({
   const deletedCount = projects.filter((project) => project.deletedAt).length;
 
   const handleSelectTenderFile = async () => {
+    if (busy || selectingTenderFileRef.current) return;
     setError(null);
-    const result = await onSelectTenderFile();
+    selectingTenderFileRef.current = true;
+    setSelectingTenderFile(true);
+    const result = await onSelectTenderFile()
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+        return null;
+      })
+      .finally(() => {
+        selectingTenderFileRef.current = false;
+        setSelectingTenderFile(false);
+      });
+    if (!result) return;
     if (!result.success || !result.filePath || !result.fileName) return;
 
     setNewTenderFile({ filePath: result.filePath, fileName: result.fileName });
@@ -215,7 +229,9 @@ export default function ProjectManagementPage({
             <strong>新建投标项目</strong>
             <span>点击“新建项目”后才会创建项目目录、复制招标文件并写入数据库。</span>
           </div>
-          <button type="button" className="project-secondary-button" onClick={handleSelectTenderFile} disabled={busy}>选择招标文件</button>
+          <button type="button" className="project-secondary-button" onClick={handleSelectTenderFile} disabled={busy || selectingTenderFile}>
+            {selectingTenderFile ? '正在打开...' : '选择招标文件'}
+          </button>
         </div>
         <div className="project-create-grid">
           <label>

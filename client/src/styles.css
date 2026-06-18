@@ -3171,6 +3171,38 @@ button {
   color: var(--yb-text-soft);
 }
 
+.analysis-project-file-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: rgba(244, 248, 255, 0.92);
+  border: 1px solid rgba(185, 205, 235, 0.86);
+  border-radius: 20px;
+  color: var(--yb-text-soft);
+}
+
+.analysis-project-file-card strong {
+  display: block;
+  color: var(--yb-text);
+  font-size: 15px;
+}
+
+.analysis-project-file-card p {
+  margin: 6px 0 0;
+  color: var(--yb-text);
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.analysis-project-file-card span {
+  max-width: 420px;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: right;
+}
+
 .analysis-actions,
 .plan-step-actions {
   display: flex;

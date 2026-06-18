@@ -836,12 +836,12 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     return loadTechnicalPlan();
   }
 
-  async function importTenderDocument() {
+  async function importTenderDocument(options = {}) {
     if (!fileService?.importDocument) {
       throw new Error('文件导入服务尚未初始化');
     }
 
-    const result = await fileService.importDocument();
+    const result = await fileService.importDocument(options);
     if (!result?.success || !result.file_content) {
       return {
         success: false,
