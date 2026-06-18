@@ -2,7 +2,7 @@ import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { MarkdownRenderer } from '../../../shared/ui';
 import type { LayoutTemplateConfig } from '../../../shared/types';
-import { normalizeMarkdownTables } from '../../../shared/utils/markdownTables';
+import { LANDSCAPE_TABLE_END_MARKER, LANDSCAPE_TABLE_START_MARKER, normalizeMarkdownTables } from '../../../shared/utils/markdownTables';
 
 interface PagedDocumentPreviewProps {
   markdown: string;
@@ -10,6 +10,12 @@ interface PagedDocumentPreviewProps {
   projectName?: string;
   bidderName?: string;
   toolbarActions?: ReactNode;
+  stats?: {
+    words: number;
+    headings: number;
+    tables: number;
+    images: number;
+  };
 }
 
 interface PreviewPage {
@@ -18,6 +24,7 @@ interface PreviewPage {
   markdown: string;
   tocItems?: Array<{ level: number; title: string; page: number }>;
   pageNumber?: number;
+  landscape?: boolean;
 }
 
 const A4_SIZE = { width: 210, height: 297 };
@@ -27,6 +34,11 @@ const PAGE_CONTENT_SPLIT_CHARS = 2600;
 
 function pageSizeFor(template?: LayoutTemplateConfig | null) {
   return template?.page?.size === 'A3' ? A3_SIZE : A4_SIZE;
+}
+
+function pageSizeForOrientation(template?: LayoutTemplateConfig | null, landscape = false) {
+  const size = pageSizeFor(template);
+  return landscape ? { width: size.height, height: size.width } : size;
 }
 
 function replaceTemplateVariables(value = '', projectName = '', bidderName = '') {
@@ -44,23 +56,56 @@ function tocLeaderClass(leader?: LayoutTemplateConfig['toc']['leader']) {
   return 'leader-dot';
 }
 
+function splitMarkdownByLandscapeMarkers(markdown: string) {
+  const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+  const segments: Array<{ markdown: string; landscape: boolean }> = [];
+  let current: string[] = [];
+  let landscape = false;
+
+  const pushCurrent = () => {
+    const content = current.join('\n').trim();
+    if (content) {
+      segments.push({ markdown: content, landscape });
+    }
+    current = [];
+  };
+
+  for (const line of lines) {
+    const marker = line.trim();
+    if (marker === LANDSCAPE_TABLE_START_MARKER) {
+      pushCurrent();
+      landscape = true;
+      continue;
+    }
+    if (marker === LANDSCAPE_TABLE_END_MARKER) {
+      pushCurrent();
+      landscape = false;
+      continue;
+    }
+    current.push(line);
+  }
+
+  pushCurrent();
+  return segments.length ? segments : [{ markdown: '', landscape: false }];
+}
+
 function splitMarkdownIntoPages(markdown: string) {
   const source = normalizeMarkdownTables(markdown).trim();
-  if (!source) return [''];
+  if (!source) return [{ markdown: '', landscape: false }];
   const blocks = source.split(/\n{2,}/);
-  const pages: string[] = [];
+  const pages: Array<{ markdown: string; landscape: boolean }> = [];
   let current = '';
 
   for (const block of blocks) {
     const next = current ? `${current}\n\n${block}` : block;
     if (current && next.length > PAGE_CONTENT_SPLIT_CHARS) {
-      pages.push(current);
+      pages.push({ markdown: current, landscape: false });
       current = block;
     } else {
       current = next;
     }
   }
-  if (current) pages.push(current);
+  if (current) pages.push({ markdown: current, landscape: false });
   return pages;
 }
 
@@ -74,7 +119,9 @@ function extractHeadings(markdown: string) {
 }
 
 function buildPreviewPages(markdown: string, projectName = '', bidderName = '', template?: LayoutTemplateConfig | null): PreviewPage[] {
-  const bodyPages = splitMarkdownIntoPages(markdown);
+  const bodyPages = splitMarkdownByLandscapeMarkers(markdown).flatMap((segment) => (
+    splitMarkdownIntoPages(segment.markdown).map((page) => ({ ...page, landscape: segment.landscape }))
+  ));
   const headings = extractHeadings(markdown);
   const maxTocLevel = Number(template?.toc?.max_level || 3);
   const tocItems = headings
@@ -105,8 +152,9 @@ function buildPreviewPages(markdown: string, projectName = '', bidderName = '', 
     ...bodyPages.map((pageMarkdown, index) => ({
       id: `body-${index + 1}`,
       kind: 'body' as const,
-      markdown: pageMarkdown,
+      markdown: pageMarkdown.markdown,
       pageNumber: index + 1,
+      landscape: pageMarkdown.landscape,
     })),
   ];
 }
@@ -166,12 +214,10 @@ function buildMarkdownComponents(template?: LayoutTemplateConfig | null): Compon
   };
 }
 
-function PagedDocumentPreview({ markdown, layoutTemplate, projectName, bidderName, toolbarActions }: PagedDocumentPreviewProps) {
+function PagedDocumentPreview({ markdown, layoutTemplate, projectName, bidderName, toolbarActions, stats }: PagedDocumentPreviewProps) {
   const size = pageSizeFor(layoutTemplate);
   const pages = useMemo(() => buildPreviewPages(markdown, projectName, bidderName, layoutTemplate), [bidderName, layoutTemplate, markdown, projectName]);
   const components = useMemo(() => buildMarkdownComponents(layoutTemplate), [layoutTemplate]);
-  const pageWidth = Math.round(size.width * PAGE_SCALE);
-  const pageHeight = Math.round(size.height * PAGE_SCALE);
   const page = layoutTemplate?.page;
   const header = layoutTemplate?.header;
   const footer = layoutTemplate?.footer;
@@ -192,6 +238,14 @@ function PagedDocumentPreview({ markdown, layoutTemplate, projectName, bidderNam
           <span>{layoutTemplate?.name || '当前版式模板'}</span>
           <span>{page?.size || 'A4'} · {page?.margin_top_mm || 25}/{page?.margin_bottom_mm || 25}/{page?.margin_left_mm || 28}/{page?.margin_right_mm || 25} mm</span>
           <span>{typography?.body_font || '正文默认字体'} · {typography?.body_size_pt || 12} pt · {typography?.line_spacing || 1.5} 倍行距</span>
+          {stats && (
+            <span className="paged-preview-toolbar-stats">
+              <strong>{stats.words}</strong> 字符
+              <strong>{stats.headings}</strong> 标题
+              <strong>{stats.tables}</strong> 表格行
+              <strong>{stats.images}</strong> 图片
+            </span>
+          )}
         </div>
         {toolbarActions && <div className="paged-preview-toolbar-actions">{toolbarActions}</div>}
       </div>
@@ -199,6 +253,9 @@ function PagedDocumentPreview({ markdown, layoutTemplate, projectName, bidderNam
         {pages.map((previewPage) => {
           const isBody = previewPage.kind === 'body';
           const isToc = previewPage.kind === 'toc';
+          const pageSize = pageSizeForOrientation(layoutTemplate, previewPage.landscape);
+          const pageWidth = Math.round(pageSize.width * PAGE_SCALE);
+          const pageHeight = Math.round(pageSize.height * PAGE_SCALE);
           const headerText = isBody && header?.enabled ? replaceTemplateVariables(header.text, projectName, bidderName) : '';
           const footerText = isBody && footer?.enabled ? replaceTemplateVariables(footer.text, projectName, bidderName) : '';
           const pageText = isBody && footer?.enabled
@@ -208,16 +265,16 @@ function PagedDocumentPreview({ markdown, layoutTemplate, projectName, bidderNam
               : '';
 
           return (
-            <div className={`paged-preview-page-wrap is-${previewPage.kind}`} key={previewPage.id}>
+            <div className={`paged-preview-page-wrap is-${previewPage.kind}${previewPage.landscape ? ' is-landscape' : ''}`} key={previewPage.id}>
               {layoutTemplate?.preview?.show_rulers !== false && (
                 <div className="paged-preview-ruler-horizontal" style={{ width: pageWidth }}>
-                  {rulerMarks(size.width).map((mark) => <span key={mark} style={{ left: `${mark * PAGE_SCALE}px` }}>{mark}</span>)}
+                  {rulerMarks(pageSize.width).map((mark) => <span key={mark} style={{ left: `${mark * PAGE_SCALE}px` }}>{mark}</span>)}
                 </div>
               )}
               <div className="paged-preview-page-row">
                 {layoutTemplate?.preview?.show_rulers !== false && (
                   <div className="paged-preview-ruler-vertical" style={{ height: pageHeight }}>
-                    {rulerMarks(size.height).map((mark) => <span key={mark} style={{ top: `${mark * PAGE_SCALE}px` }}>{mark}</span>)}
+                    {rulerMarks(pageSize.height).map((mark) => <span key={mark} style={{ top: `${mark * PAGE_SCALE}px` }}>{mark}</span>)}
                   </div>
                 )}
                 <article

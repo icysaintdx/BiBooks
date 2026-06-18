@@ -18,6 +18,7 @@ const {
   Header,
   ImageRun,
   LevelFormat,
+  PageOrientation,
   PageNumber,
   Packer,
   Paragraph,
@@ -39,6 +40,8 @@ const NUMBERING_REFERENCE_PREFIX = 'technical-plan-numbering';
 const DOCX_TABLE_WIDTH_TWIPS = 9000;
 const MERMAID_EXPORT_RETRY_ATTEMPTS = 2;
 const MERMAID_EXPORT_RETRY_DELAY_MS = 3000;
+const LANDSCAPE_TABLE_START_MARKER = '<!-- bibooks:landscape-table:start -->';
+const LANDSCAPE_TABLE_END_MARKER = '<!-- bibooks:landscape-table:end -->';
 
 function encodeMermaidForInk(code) {
   const state = JSON.stringify({
@@ -599,16 +602,91 @@ function expandInlineMarkdownTableRows(line) {
   return [prefix.trimEnd(), ...tableRows];
 }
 
+function splitMarkdownByLandscapeMarkers(content) {
+  const lines = String(content || '').replace(/\r\n?/g, '\n').split('\n');
+  const segments = [];
+  let current = [];
+  let landscape = false;
+
+  const pushCurrent = () => {
+    const markdown = current.join('\n').trim();
+    if (markdown) {
+      segments.push({ markdown, landscape });
+    }
+    current = [];
+  };
+
+  for (const line of lines) {
+    const marker = String(line || '').trim();
+    if (marker === LANDSCAPE_TABLE_START_MARKER) {
+      pushCurrent();
+      landscape = true;
+      continue;
+    }
+    if (marker === LANDSCAPE_TABLE_END_MARKER) {
+      pushCurrent();
+      landscape = false;
+      continue;
+    }
+    current.push(line);
+  }
+
+  pushCurrent();
+  return segments;
+}
+
+function isBlankMarkdownLine(line) {
+  return !String(line || '').trim();
+}
+
+function hasNearbyMarkdownTableDelimiter(lines, start, direction) {
+  let cursor = start + direction;
+  while (cursor >= 0 && cursor < lines.length) {
+    const line = lines[cursor];
+    if (isBlankMarkdownLine(line)) {
+      cursor += direction;
+      continue;
+    }
+    if (!isMarkdownTableCandidateLine(line) && !isMarkdownTableDelimiterLine(line)) {
+      return false;
+    }
+    if (isMarkdownTableDelimiterLine(line)) {
+      return true;
+    }
+    cursor += direction;
+  }
+  return false;
+}
+
+function compactLooseMarkdownTableSpacing(lines) {
+  return lines.filter((line, index) => {
+    if (!isBlankMarkdownLine(line)) return true;
+
+    let previous = index - 1;
+    while (previous >= 0 && isBlankMarkdownLine(lines[previous])) previous -= 1;
+    let next = index + 1;
+    while (next < lines.length && isBlankMarkdownLine(lines[next])) next += 1;
+
+    if (previous < 0 || next >= lines.length) return true;
+    const previousIsTableLine = isMarkdownTableCandidateLine(lines[previous]) || isMarkdownTableDelimiterLine(lines[previous]);
+    const nextIsTableLine = isMarkdownTableCandidateLine(lines[next]) || isMarkdownTableDelimiterLine(lines[next]);
+    if (!previousIsTableLine || !nextIsTableLine) return true;
+
+    return !(hasNearbyMarkdownTableDelimiter(lines, index, -1) || hasNearbyMarkdownTableDelimiter(lines, index, 1));
+  });
+}
+
 function normalizeMarkdownTablesForDocx(content) {
   const expandedLines = String(content || '')
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .flatMap(expandInlineMarkdownTableRows);
+  const compactedLines = compactLooseMarkdownTableSpacing(expandedLines);
   const lines = [];
 
-  for (let index = 0; index < expandedLines.length; index += 1) {
-    const line = expandedLines[index];
-    const nextLine = expandedLines[index + 1] || '';
+  for (let index = 0; index < compactedLines.length; index += 1) {
+    const line = compactedLines[index];
+    const nextLine = compactedLines[index + 1] || '';
     const compressedTableRows = expandCompressedMarkdownTableRows(line, nextLine);
     const startsCompressedTable = Boolean(compressedTableRows);
     const startsTable = isMarkdownTableCandidateLine(line) && isMarkdownTableDelimiterLine(nextLine);
@@ -629,12 +707,12 @@ function normalizeMarkdownTablesForDocx(content) {
     if (startsTable) {
       const rowLines = [];
       let cursor = index + 2;
-      while (cursor < expandedLines.length && isMarkdownTableCandidateLine(expandedLines[cursor]) && !isMarkdownTableDelimiterLine(expandedLines[cursor])) {
-        rowLines.push(expandedLines[cursor]);
+      while (cursor < compactedLines.length && isMarkdownTableCandidateLine(compactedLines[cursor]) && !isMarkdownTableDelimiterLine(compactedLines[cursor])) {
+        rowLines.push(compactedLines[cursor]);
         cursor += 1;
       }
       lines.push(...normalizeMarkdownTableBlock(line, nextLine, rowLines));
-      if (expandedLines[cursor] && String(expandedLines[cursor]).trim()) {
+      if (compactedLines[cursor] && String(compactedLines[cursor]).trim()) {
         lines.push('');
       }
       index = cursor - 1;
@@ -643,8 +721,8 @@ function normalizeMarkdownTablesForDocx(content) {
     if (isMarkdownTableDelimiterLine(line)) {
       const rowLines = [];
       let cursor = index + 1;
-      while (cursor < expandedLines.length && isMarkdownTableCandidateLine(expandedLines[cursor]) && !isMarkdownTableDelimiterLine(expandedLines[cursor])) {
-        rowLines.push(expandedLines[cursor]);
+      while (cursor < compactedLines.length && isMarkdownTableCandidateLine(compactedLines[cursor]) && !isMarkdownTableDelimiterLine(compactedLines[cursor])) {
+        rowLines.push(compactedLines[cursor]);
         cursor += 1;
       }
       if (rowLines.length) {
@@ -653,7 +731,7 @@ function normalizeMarkdownTablesForDocx(content) {
           lines.push('');
         }
         lines.push(...normalizeMarkdownTableBlock(headerLine, line, rowLines));
-        if (expandedLines[cursor] && String(expandedLines[cursor]).trim()) {
+        if (compactedLines[cursor] && String(compactedLines[cursor]).trim()) {
           lines.push('');
         }
         index = cursor - 1;
@@ -663,8 +741,8 @@ function normalizeMarkdownTablesForDocx(content) {
     if (startsPipeTableWithoutDelimiter) {
       const rowLines = [];
       let cursor = index;
-      while (cursor < expandedLines.length && isMarkdownTableCandidateLine(expandedLines[cursor]) && !isMarkdownTableDelimiterLine(expandedLines[cursor])) {
-        rowLines.push(expandedLines[cursor]);
+      while (cursor < compactedLines.length && isMarkdownTableCandidateLine(compactedLines[cursor]) && !isMarkdownTableDelimiterLine(compactedLines[cursor])) {
+        rowLines.push(compactedLines[cursor]);
         cursor += 1;
       }
       if (rowLines.length >= 2) {
@@ -673,7 +751,7 @@ function normalizeMarkdownTablesForDocx(content) {
         }
         const headerLine = rowLines.shift();
         lines.push(...normalizeMarkdownTableBlock(headerLine, markdownDelimiterForColumnCount(splitMarkdownTableCells(headerLine).length), rowLines));
-        if (expandedLines[cursor] && String(expandedLines[cursor]).trim()) {
+        if (compactedLines[cursor] && String(compactedLines[cursor]).trim()) {
           lines.push('');
         }
         index = cursor - 1;
@@ -1328,8 +1406,34 @@ async function markdownToDocxBlocks(content, context = {}) {
   return markdownNodesToDocx(tree.children || [], context);
 }
 
-async function addMarkdownContent(children, content, context) {
-  children.push(...await markdownToDocxBlocks(content, context));
+async function markdownToDocxSection(content, context = {}, options = {}) {
+  return markdownToDocxBlocks(content, context, options);
+}
+
+async function addMarkdownContent(children, content, context, options = {}) {
+  children.push(...await markdownToDocxSection(content, context, options));
+}
+
+function outlineToMarkdown(items = [], level = 1) {
+  const lines = [];
+  for (const [index, item] of (items || []).entries()) {
+    const headingLevel = Math.min(Math.max(level, 1), 6);
+    const title = outlineTitleText(item, headingLevel, index);
+    if (title) {
+      lines.push(`${'#'.repeat(headingLevel)} ${title}`);
+    }
+    const content = String(item?.content || '').trim();
+    if (content) {
+      lines.push('');
+      lines.push(content);
+    }
+    if (item?.children?.length) {
+      lines.push('');
+      lines.push(outlineToMarkdown(item.children, level + 1));
+    }
+    lines.push('');
+  }
+  return lines.join('\n').replace(/\n{4,}/g, '\n\n\n').trim();
 }
 
 const CHINESE_NUMERALS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
@@ -1505,12 +1609,27 @@ function createSectionProperties(layout, extra = {}) {
   };
 }
 
-function createBodySection(layout, payload, context, children) {
+function createSectionPageSize(layout, landscape = false) {
+  const size = layout.pageSettings.size || {};
+  if (!landscape) {
+    return size;
+  }
+  return {
+    width: size.height,
+    height: size.width,
+    orientation: PageOrientation.LANDSCAPE,
+  };
+}
+
+function createBodySection(layout, payload, context, children, options = {}) {
   return {
     ...createSectionHeadersFooters(layout, payload, context),
     properties: createSectionProperties(layout, {
       type: SectionType.NEXT_PAGE,
-      page: { pageNumbers: { start: 1 } },
+      page: {
+        size: createSectionPageSize(layout, options.landscape),
+        ...(options.startPageNumber ? { pageNumbers: { start: 1 } } : {}),
+      },
     }),
     children,
   };
@@ -1569,21 +1688,37 @@ async function buildDocxResult(payload, options = {}) {
   };
   const tocParagraphs = generateTocParagraphs(tocOptions);
 
-  // 封面 + 分页符 + 目录 + 分页符 + 正文内容
-  const bodyChildren = [
-    contextParagraph(context, [contextTextRun(context, payload.project_name || '投标技术文件', { bold: true, size: layout.styles.heading1.run.size })], { alignment: AlignmentType.CENTER, after: 300, noIndent: true }),
-  ];
-
   reportProgress(context, 10, stats.mermaidCount
     ? `准备导出正文，并转换 ${stats.mermaidCount} 张 Mermaid 图。`
     : '准备导出正文。');
-  await addOutlineItems(bodyChildren, payload.outline || [], context);
   reportProgress(context, 90, '正在生成 Word 文件。');
-
-  const numbering = createNumberingConfig(context);
 
   // 加载自定义字体
   const customFonts = loadCustomFonts();
+
+  const bodySegments = splitMarkdownByLandscapeMarkers([
+    `# ${payload.project_name || '投标技术文件'}`,
+    outlineToMarkdown(payload.outline || []),
+  ].filter(Boolean).join('\n\n'));
+
+  if (!bodySegments.length) {
+    bodySegments.push({ markdown: payload.project_name || '投标技术文件', landscape: false });
+  }
+
+  const bodySections = [];
+  for (const [index, segment] of bodySegments.entries()) {
+    const children = [];
+    await addMarkdownContent(children, segment.markdown, context);
+    if (!children.length) continue;
+    bodySections.push({
+      ...createBodySection(layout, payload, context, children, {
+        landscape: segment.landscape,
+        startPageNumber: index === 0,
+      }),
+    });
+  }
+
+  const numbering = createNumberingConfig(context);
 
   const doc = new Document({
     ...(numbering ? { numbering } : {}),
@@ -1621,7 +1756,7 @@ async function buildDocxResult(payload, options = {}) {
         properties: createSectionProperties(layout, { type: SectionType.NEXT_PAGE }),
         children: tocParagraphs.length ? tocParagraphs : [contextParagraph(context, [contextTextRun(context, '目录')], { alignment: AlignmentType.CENTER, noIndent: true })],
       },
-      createBodySection(layout, payload, context, bodyChildren),
+      ...bodySections,
     ],
   });
 

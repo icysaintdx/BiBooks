@@ -4,6 +4,7 @@ export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   onSelectionChange?: (selection: { start: number; end: number }) => void;
+  onConvertSelectionToTable?: (selection: string) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
@@ -18,7 +19,7 @@ const toolbarActions = [
   { id: 'ordered-list', label: '有序列表', title: '有序列表', prefix: '1. ', suffix: '', content: '1.' },
 ];
 
-function MarkdownEditor({ value, onChange, onSelectionChange, placeholder = '输入 Markdown 内容...', className, disabled = false }: MarkdownEditorProps) {
+function MarkdownEditor({ value, onChange, onSelectionChange, onConvertSelectionToTable, placeholder = '输入 Markdown 内容...', className, disabled = false }: MarkdownEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   function emitSelection() {
@@ -51,6 +52,20 @@ function MarkdownEditor({ value, onChange, onSelectionChange, placeholder = '输
     });
   }
 
+  function convertSelectionToTable() {
+    const textarea = textareaRef.current;
+    if (!textarea || disabled || !onConvertSelectionToTable) {
+      return;
+    }
+
+    const selected = value.slice(textarea.selectionStart, textarea.selectionEnd);
+    if (!selected.trim()) {
+      return;
+    }
+
+    onConvertSelectionToTable(selected);
+  }
+
   return (
     <div className={`markdown-editor${className ? ` ${className}` : ''}`}>
       <div className="markdown-editor-toolbar" aria-label="Markdown 编辑工具栏">
@@ -63,9 +78,20 @@ function MarkdownEditor({ value, onChange, onSelectionChange, placeholder = '输
             onClick={() => insertMarkdown(action.prefix, action.suffix)}
             key={action.id}
           >
-            {action.content}
+          {action.content}
           </button>
         ))}
+        {onConvertSelectionToTable && (
+          <button
+            type="button"
+            title="转表格"
+            aria-label="转表格"
+            disabled={disabled}
+            onClick={convertSelectionToTable}
+          >
+            ▦
+          </button>
+        )}
       </div>
       <textarea
         ref={textareaRef}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MarkdownEditor, useToast } from '../../../shared/ui';
+import { convertSelectionToMarkdownTable, wrapMarkdownAsLandscapeTable } from '../../../shared/utils/markdownTables';
 import type { LayoutTemplateConfig, OutlineData, OutlineItem } from '../../../shared/types';
 import PagedDocumentPreview from '../components/PagedDocumentPreview';
 
@@ -98,6 +99,30 @@ function ExportArchivePage({
     showToast('已插入表格', 'success');
   };
 
+  const convertSelectionToTable = () => {
+    const selected = draft.slice(insertPosition.start, insertPosition.end).trim();
+    const converted = convertSelectionToMarkdownTable(selected);
+    if (!converted) {
+      showToast('选区内容不足以转换为表格', 'info');
+      return;
+    }
+
+    setDraft((prev) => prev.slice(0, insertPosition.start) + converted + prev.slice(insertPosition.end));
+    showToast('已转换为表格', 'success');
+  };
+
+  const markSelectionLandscape = () => {
+    const selected = draft.slice(insertPosition.start, insertPosition.end).trim();
+    const wrapped = wrapMarkdownAsLandscapeTable(selected);
+    if (!wrapped) {
+      showToast('请先选中需要设为横版的表格块', 'info');
+      return;
+    }
+
+    setDraft((prev) => prev.slice(0, insertPosition.start) + wrapped + prev.slice(insertPosition.end));
+    showToast('已标记为横版表格页', 'success');
+  };
+
   const rewriteWithAi = async () => {
     const selected = draft.slice(insertPosition.start, insertPosition.end).trim();
     if (!selected) {
@@ -182,12 +207,6 @@ function ExportArchivePage({
             <span className="section-kicker">合并前预览编辑</span>
             <div className="export-preview-title-row">
               <h3>完整标书草稿</h3>
-              <div className="export-preview-stats">
-                <span><strong>{previewStats.words}</strong> 字符</span>
-                <span><strong>{previewStats.headings}</strong> 标题</span>
-                <span><strong>{previewStats.tables}</strong> 表格行</span>
-                <span><strong>{previewStats.images}</strong> 图片</span>
-              </div>
             </div>
           </div>
           <div className="export-preview-head-actions">
@@ -208,17 +227,11 @@ function ExportArchivePage({
           </div>
         </div>
 
-        {exportNoticeLines.length > 0 && (
-          <div className="export-warning-list export-preview-alert" role="status" aria-live="polite">
-            <strong>导出前需要核对</strong>
-            {exportNoticeLines.map((warning) => <small key={warning}>{warning}</small>)}
-          </div>
-        )}
-
         <div className="export-preview-tools">
           <button type="button" className="secondary-action" onClick={insertTextBlock}>插入文字</button>
           <button type="button" className="secondary-action" onClick={insertImageBlock}>插入图片</button>
           <button type="button" className="secondary-action" onClick={insertTableBlock}>插入表格</button>
+          <button type="button" className="secondary-action" onClick={markSelectionLandscape}>横版页</button>
           <input
             type="text"
             value={aiRequirement}
@@ -236,6 +249,7 @@ function ExportArchivePage({
               value={draft}
               onChange={setDraft}
               onSelectionChange={setInsertPosition}
+              onConvertSelectionToTable={convertSelectionToTable}
               placeholder="合并后的完整标书内容草稿。此处作为内容层编辑，页面预览会套用当前版式模板。"
             />
           </div>
@@ -245,9 +259,17 @@ function ExportArchivePage({
             layoutTemplate={layoutTemplate}
             projectName={outlineData?.project_name || ''}
             bidderName={bidderName || ''}
+            stats={previewStats}
           />
         )}
       </section>
+
+      {exportNoticeLines.length > 0 && (
+        <div className="export-warning-list export-preview-alert" role="status" aria-live="polite">
+          <strong>导出前需要核对</strong>
+          {exportNoticeLines.map((warning) => <small key={warning}>{warning}</small>)}
+        </div>
+      )}
     </div>
   );
 }
