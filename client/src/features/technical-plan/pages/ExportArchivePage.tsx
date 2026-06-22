@@ -4,6 +4,20 @@ import { convertSelectionToMarkdownTable, wrapMarkdownAsLandscapeTable } from '.
 import type { LayoutTemplateConfig, OutlineData, OutlineItem } from '../../../shared/types';
 import PagedDocumentPreview from '../components/PagedDocumentPreview';
 
+// 导出三块一致性硬校验分级：致命=禁止导出正式稿；重大=允许导出但需确认；普通=允许导出，进归档摘要。
+type ExportIssueLevel = 'fatal' | 'major' | 'minor';
+
+interface ExportIssue {
+  level: ExportIssueLevel;
+  message: string;
+}
+
+const exportIssueLevelLabel: Record<ExportIssueLevel, string> = {
+  fatal: '致命问题（禁止导出正式稿）',
+  major: '重大警告（需确认后导出）',
+  minor: '普通提醒',
+};
+
 interface ExportArchivePageProps {
   outlineData: OutlineData | null;
   exporting: boolean;
@@ -13,6 +27,7 @@ interface ExportArchivePageProps {
   bidderName?: string;
   previewMarkdown: string;
   previewWarnings: string[];
+  previewIssues?: ExportIssue[];
   previewLoading: boolean;
   layoutTemplate?: LayoutTemplateConfig | null;
   onRefreshPreview: () => Promise<void> | void;
@@ -55,6 +70,7 @@ function ExportArchivePage({
   bidderName,
   previewMarkdown,
   previewWarnings,
+  previewIssues,
   previewLoading,
   layoutTemplate,
   onRefreshPreview,
@@ -76,13 +92,32 @@ function ExportArchivePage({
   }, [previewMarkdown]);
 
   const previewStats = useMemo(() => buildPreviewStats(draft), [draft]);
-  const exportNoticeLines = useMemo(() => {
-    const lines = [...previewWarnings];
-    if (exportBlocked && exportBlockReason && !lines.includes(exportBlockReason)) {
-      lines.push(exportBlockReason);
+  // 三块一致性硬校验：优先用结构化 issues（含分级）；缺省时回退把旧 warnings 视为普通提醒。
+  const groupedIssues = useMemo(() => {
+    const issues: ExportIssue[] = (previewIssues && previewIssues.length)
+      ? previewIssues
+      : previewWarnings.map((message) => ({ level: 'minor' as ExportIssueLevel, message }));
+    if (exportBlocked && exportBlockReason && !issues.some((issue) => issue.message === exportBlockReason)) {
+      issues.push({ level: 'fatal', message: exportBlockReason });
     }
-    return lines;
-  }, [exportBlocked, exportBlockReason, previewWarnings]);
+    return {
+      fatal: issues.filter((issue) => issue.level === 'fatal'),
+      major: issues.filter((issue) => issue.level === 'major'),
+      minor: issues.filter((issue) => issue.level === 'minor'),
+    };
+  }, [exportBlocked, exportBlockReason, previewIssues, previewWarnings]);
+  const hasAnyIssue = groupedIssues.fatal.length + groupedIssues.major.length + groupedIssues.minor.length > 0;
+
+  // 重大警告存在时，导出正式稿前弹确认；致命问题由 exportBlocked 直接禁用按钮。
+  const handleExportWord = () => {
+    if (groupedIssues.major.length > 0) {
+      const confirmText = `检测到 ${groupedIssues.major.length} 项重大警告：\n${groupedIssues.major.map((issue) => `· ${issue.message}`).join('\n')}\n\n是否确认继续导出正式稿？`;
+      if (!window.confirm(confirmText)) {
+        return;
+      }
+    }
+    onExportWord(draft);
+  };
 
   const insertTextBlock = () => {
     setDraft((prev) => insertAtCursor(prev, '\n## 新增文字章节\n\n请在这里填写需要追加的文字内容。\n', insertPosition.start, insertPosition.end));
@@ -221,7 +256,7 @@ function ExportArchivePage({
             </button>
             <button type="button" className="secondary-action" onClick={onBackToCheck}>返回交付检查</button>
             <button type="button" className="secondary-action" onClick={onOpenVersions}>打开版本审阅</button>
-            <button type="button" className="primary-action" onClick={() => onExportWord(draft)} disabled={exporting || exportBlocked || !outlineData || !draft.trim()}>
+            <button type="button" className="primary-action" onClick={handleExportWord} disabled={exporting || exportBlocked || !outlineData || !draft.trim()}>
               {exporting ? '导出中...' : exportBlocked ? '请先补齐' : '导出完整标书 Word'}
             </button>
           </div>
@@ -264,10 +299,17 @@ function ExportArchivePage({
         )}
       </section>
 
-      {exportNoticeLines.length > 0 && (
+      {hasAnyIssue && (
         <div className="export-warning-list export-preview-alert" role="status" aria-live="polite">
-          <strong>导出前需要核对</strong>
-          {exportNoticeLines.map((warning) => <small key={warning}>{warning}</small>)}
+          <strong>导出前一致性校验</strong>
+          {(['fatal', 'major', 'minor'] as ExportIssueLevel[]).map((level) => (
+            groupedIssues[level].length > 0 && (
+              <div key={level} className={`export-issue-group is-${level}`}>
+                <em>{exportIssueLevelLabel[level]}</em>
+                {groupedIssues[level].map((issue) => <small key={`${level}-${issue.message}`}>{issue.message}</small>)}
+              </div>
+            )
+          ))}
         </div>
       )}
     </div>

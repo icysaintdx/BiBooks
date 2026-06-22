@@ -2856,6 +2856,47 @@ button {
   line-height: 1.35;
 }
 
+/* 导出三块一致性硬校验：按致命/重大/普通分组展示 */
+.export-issue-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  margin-top: 4px;
+  border-left: 3px solid rgba(148, 163, 184, 0.7);
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.export-issue-group em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.export-issue-group.is-fatal {
+  border-left-color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.export-issue-group.is-fatal em {
+  color: #b91c1c;
+}
+
+.export-issue-group.is-major {
+  border-left-color: #d97706;
+  background: rgba(217, 119, 6, 0.08);
+}
+
+.export-issue-group.is-major em {
+  color: #b45309;
+}
+
+.export-issue-group.is-minor em {
+  color: #475569;
+}
+
 @keyframes export-alert-nudge {
   0%, 82%, 100% {
     transform: translateX(0);

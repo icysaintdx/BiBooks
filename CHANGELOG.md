@@ -1,5 +1,34 @@
 # 更新日志
 
+## [v0.14.0] - 2026-06-22 18:30
+**版本代号**: 编排联动与导出校验版
+**文档总数**: 15
+
+### 🆕 新增功能
+#### 编排区进度联动 ⭐
+- **功能**: 商务标 / 报价的真实完成度回写编排卡片状态，替换硬编码"待处理"。无记录→待处理；有记录未完成→进行中；已生成结果 / 含税合计>0→可开始
+- **位置**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`（commercialBidStatus / pricingStatus + useEffect）
+- **文档**: [编排进度联动与导出一致性校验已完成](docs/feature/编排进度联动与导出一致性校验已完成.md)
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
+
+#### 大纲格式渠道深化 ⭐
+- **功能**: 招标格式优先路由补全二三级目录时，把招标 bidFileStructure（投标文件组成 / 格式）作为最高优先级传给子目录生成，二三级目录贴合招标对各一级条目的组成与编制格式规定，而非仅靠技术评分自由展开
+- **位置**: `client/electron/services/outlineGenerationTask.cjs`（generateTenderStructureChildrenMessages + generateTenderStructureChildren）
+- **文档**: [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)
+- **文件**: `client/electron/services/outlineGenerationTask.cjs` `client/scripts/outline-tender-format-smoke.cjs`
+
+#### 导出三块一致性硬校验 ⭐
+- **功能**: 导出前一致性校验从软提示升级为致命 / 重大 / 普通三级拦截（《完整标书合成与版式模板方案》§8）。致命问题（缺技术正文 / 报价明细为空 / 缺商务标）禁止导出正式稿；重大问题（报价合计为 0 / 商务标缺资质或业绩 / 正文章节过少）允许导出但需确认；普通提醒进归档摘要
+- **位置**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`（ExportIssue + buildProjectExportPreview）
+- **文档**: [编排进度联动与导出一致性校验已完成](docs/feature/编排进度联动与导出一致性校验已完成.md)
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx` `client/src/features/technical-plan/pages/ExportArchivePage.tsx` `client/src/styles.css`
+
+### 📚 文档更新
+- [编排进度联动与导出一致性校验已完成](docs/feature/编排进度联动与导出一致性校验已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（阶段二低风险 3 项移至已落地）⭐
+
+---
+
 ## [v0.13.0] - 2026-06-22 16:30
 **版本代号**: 统一编排骨架版
 **文档总数**: 14

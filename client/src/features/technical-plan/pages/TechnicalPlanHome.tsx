@@ -318,6 +318,20 @@ function buildCommercialBidMarkdown(record: ExportCommercialBid) {
   return lines.join('\n');
 }
 
+// 导出三块一致性硬校验分级：致命=禁止导出正式稿；重大=允许导出但需确认；普通=允许导出，进归档摘要。
+type ExportIssueLevel = 'fatal' | 'major' | 'minor';
+
+interface ExportIssue {
+  level: ExportIssueLevel;
+  message: string;
+}
+
+const exportIssueLevelLabel: Record<ExportIssueLevel, string> = {
+  fatal: '致命问题（禁止导出正式稿）',
+  major: '重大警告（需确认后导出）',
+  minor: '普通提醒',
+};
+
 async function buildProjectExportOutline(outlineData: OutlineData) {
   const warnings: string[] = [];
   const outline: OutlineItem[] = [
@@ -370,17 +384,56 @@ async function buildProjectExportPreview(outlineData: OutlineData) {
   const latestCommercialBid = (Array.isArray(commercialBids) ? commercialBids[0] : null) as ExportCommercialBid | null;
   const latestPricingSheet = Array.isArray(pricingSheets) ? pricingSheets[0] : null;
   const bid = latestCommercialBid?.result || latestCommercialBid;
-  const missing: string[] = [];
-  if (!latestCommercialBid) missing.push('商务标');
-  if (!(latestPricingSheet && Array.isArray((latestPricingSheet as any).items) && (latestPricingSheet as any).items.length)) {
-    missing.push('报价明细');
+
+  // 三块一致性硬校验：按《完整标书合成与版式模板方案》§8 分三级拦截。
+  // 致命：缺技术正文 / 报价明细为空 / 商务标缺失 → 禁止导出正式稿；
+  // 重大：报价含税合计<=0 / 商务标无资质或无业绩 / 技术正文章节过少 → 允许导出但需确认；
+  // 普通：来源标注、格式提示等 → 允许导出，进归档摘要。
+  const issues: ExportIssue[] = [];
+
+  const technicalChapters = Array.isArray(outlineData?.outline) ? outlineData.outline.length : 0;
+  if (!technicalChapters) {
+    issues.push({ level: 'fatal', message: '缺少技术正文：目录为空或未生成任何技术标章节，无法导出正式稿。' });
+  } else if (technicalChapters < 2) {
+    issues.push({ level: 'major', message: '技术正文章节过少（不足 2 个一级章节），建议补全后再导出正式稿。' });
   }
+
+  const pricingItems = (latestPricingSheet && Array.isArray((latestPricingSheet as any).items)) ? (latestPricingSheet as any).items : [];
+  if (!pricingItems.length) {
+    issues.push({ level: 'fatal', message: '报价明细为空：完整投标文件必须包含报价明细，请先到报价模块补齐并保存。' });
+  } else if (!(Number((latestPricingSheet as any)?.summary?.totalAmount) > 0)) {
+    issues.push({ level: 'major', message: '报价含税合计为 0：已有报价明细但合计金额为 0，请核对单价与数量后再导出。' });
+  }
+
+  if (!latestCommercialBid) {
+    issues.push({ level: 'fatal', message: '缺少商务标：完整投标文件必须包含商务标，请先到商务标模块生成并保存。' });
+  } else {
+    const sections = (bid as any)?.sections || {};
+    const qualifications = Array.isArray(sections.qualifications?.qualifications) ? sections.qualifications.qualifications : [];
+    const projects = Array.isArray(sections.performance?.projects) ? sections.performance.projects : [];
+    if (!qualifications.length) {
+      issues.push({ level: 'major', message: '商务标未填写资质证明材料，请确认是否需要补充必备资质后再导出。' });
+    }
+    if (!projects.length) {
+      issues.push({ level: 'major', message: '商务标未填写业绩证明材料，请确认是否需要补充业绩后再导出。' });
+    }
+  }
+
+  // 现有软提示（来源/格式类）统一归为普通级，保留原文案。
+  projectExport.warnings.forEach((warning) => {
+    issues.push({ level: 'minor', message: warning });
+  });
+
+  const fatalIssues = issues.filter((issue) => issue.level === 'fatal');
+  const canExport = fatalIssues.length === 0;
   return {
     markdown: outlineToMarkdown(projectExport.outline),
-    warnings: projectExport.warnings,
+    issues,
+    // warnings 由 issues 派生，兼容现有 UI 与导出进度弹窗。
+    warnings: issues.map((issue) => issue.message),
     bidderName: bid?.companyName || '',
-    canExport: missing.length === 0,
-    blockReason: missing.length ? `完整投标文件必须包含 ${missing.join('、')}。请先到对应模块补齐并保存后，再重新合成预览。` : '',
+    canExport,
+    blockReason: fatalIssues.length ? fatalIssues.map((issue) => issue.message).join(' ') : '',
   };
 }
 
@@ -580,11 +633,15 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
   const [repairTasksLoading, setRepairTasksLoading] = useState(false);
   const [projectPreviewMarkdown, setProjectPreviewMarkdown] = useState('');
   const [projectPreviewWarnings, setProjectPreviewWarnings] = useState<string[]>([]);
+  const [projectPreviewIssues, setProjectPreviewIssues] = useState<ExportIssue[]>([]);
   const [projectPreviewBidderName, setProjectPreviewBidderName] = useState('');
   const [projectPreviewCanExport, setProjectPreviewCanExport] = useState(false);
   const [projectPreviewBlockReason, setProjectPreviewBlockReason] = useState('');
   const [projectPreviewLoading, setProjectPreviewLoading] = useState(false);
   const [layoutTemplate, setLayoutTemplate] = useState<LayoutTemplateConfig | null>(null);
+  // 编排区进度联动：从商务标 / 报价的当前项目记录推导真实完成度，回写编排卡片状态。
+  const [commercialBidStatus, setCommercialBidStatus] = useState<OrchestrationBlockStatus>('todo');
+  const [pricingStatus, setPricingStatus] = useState<OrchestrationBlockStatus>('todo');
   const activeIndex = steps.indexOf(state.step);
   const bidAnalysisReady = areRequiredBidAnalysisTasksReady(state.bidAnalysisTasks);
   const globalFactsReady = state.globalFacts.length > 0 && state.globalFactsTask?.status === 'success';
@@ -636,6 +693,54 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
       mounted = false;
     };
   }, []);
+
+  // 编排区进度联动：目录就绪后，按当前项目的商务标 / 报价记录推导完成度。
+  // 商务标：无记录→待处理；有记录但无 result/report→进行中；任一有 result/report→可开始（已就绪）。
+  // 报价：无 items→待处理；有 items 但含税合计<=0→进行中；含税合计>0→可开始（已就绪）。
+  useEffect(() => {
+    if (!state.outlineData) {
+      setCommercialBidStatus('todo');
+      setPricingStatus('todo');
+      return;
+    }
+    let cancelled = false;
+    const projectId = currentProject?.id;
+    Promise.all([
+      window.yibiao?.commercialBid?.list?.().catch(() => []),
+      window.yibiao?.pricing?.list?.().catch(() => []),
+    ]).then(([commercialBids, pricingSheets]) => {
+      if (cancelled) {
+        return;
+      }
+      const scopedBids = (Array.isArray(commercialBids) ? commercialBids : []).filter(
+        (item: any) => projectId == null || item?.bidProjectId == null || item?.bidProjectId === projectId,
+      );
+      const latestBid = scopedBids[0] as any;
+      if (!latestBid) {
+        setCommercialBidStatus('todo');
+      } else if (latestBid.result || latestBid.report) {
+        setCommercialBidStatus('ready');
+      } else {
+        setCommercialBidStatus('active');
+      }
+
+      const scopedSheets = (Array.isArray(pricingSheets) ? pricingSheets : []).filter(
+        (item: any) => projectId == null || item?.bidProjectId == null || item?.bidProjectId === projectId,
+      );
+      const latestSheet = scopedSheets[0] as any;
+      const sheetItems = Array.isArray(latestSheet?.items) ? latestSheet.items : [];
+      if (!sheetItems.length) {
+        setPricingStatus('todo');
+      } else if (Number(latestSheet?.summary?.totalAmount) > 0) {
+        setPricingStatus('ready');
+      } else {
+        setPricingStatus('active');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.id, state.outlineData]);
 
   useEffect(() => {
     if (!window.yibiao?.tasks) {
@@ -815,6 +920,7 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
         if (!mounted) return;
         setProjectPreviewMarkdown(result.markdown);
         setProjectPreviewWarnings(result.warnings);
+        setProjectPreviewIssues(result.issues);
         setProjectPreviewBidderName(result.bidderName);
         setProjectPreviewCanExport(result.canExport);
         setProjectPreviewBlockReason(result.blockReason);
@@ -999,6 +1105,7 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
       const result = await buildProjectExportPreview(state.outlineData);
       setProjectPreviewMarkdown(result.markdown);
       setProjectPreviewWarnings(result.warnings);
+      setProjectPreviewIssues(result.issues);
       setProjectPreviewBidderName(result.bidderName);
       setProjectPreviewCanExport(result.canExport);
       setProjectPreviewBlockReason(result.blockReason);
@@ -1195,8 +1302,8 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
       id: 'business',
       title: '商务标',
       description: '生成商务材料草稿，资质、业绩、报价说明等结构化中间层。',
-      status: 'todo',
-      statusLabel: orchestrationStatusLabel.todo,
+      status: commercialBidStatus,
+      statusLabel: orchestrationStatusLabel[commercialBidStatus],
       actionLabel: '前往商务标',
       isCurrent: false,
       onClick: () => onNavigateSection?.('business-bid'),
@@ -1205,8 +1312,8 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
       id: 'pricing',
       title: '报价',
       description: '在本地维护报价明细与税费核算，供商务标与最终合成引用。',
-      status: 'todo',
-      statusLabel: orchestrationStatusLabel.todo,
+      status: pricingStatus,
+      statusLabel: orchestrationStatusLabel[pricingStatus],
       actionLabel: '前往报价',
       isCurrent: false,
       onClick: () => onNavigateSection?.('pricing'),
@@ -1350,6 +1457,7 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
           bidderName={projectPreviewBidderName}
           previewMarkdown={projectPreviewMarkdown}
           previewWarnings={projectPreviewWarnings}
+          previewIssues={projectPreviewIssues}
           previewLoading={projectPreviewLoading}
           layoutTemplate={layoutTemplate}
           onRefreshPreview={refreshProjectPreview}

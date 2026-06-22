@@ -1,10 +1,10 @@
 {
-  "version": "v0.13.0",
-  "codename": "统一编排骨架版",
-  "releaseDate": "2026-06-22T16:30:00",
+  "version": "v0.14.0",
+  "codename": "编排联动与导出校验版",
+  "releaseDate": "2026-06-22T18:30:00",
   "docs": {
-    "total": 14,
-    "feature": 2,
+    "total": 15,
+    "feature": 3,
     "bugfix": 1,
     "version": 0,
     "api": 1,

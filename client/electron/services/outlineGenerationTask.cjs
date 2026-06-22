@@ -316,6 +316,33 @@ ${buildEvidenceBoundaryInstruction()}`;
   return messages;
 }
 
+// 招标格式优先（子目录）：补全二三级目录时，把招标文件规定的投标文件组成/格式作为最高优先级输入，
+// 要求二三级目录贴合当前一级条目在招标文件中应包含的内容与格式，而非仅按技术评分自由展开。
+function generateTenderStructureChildrenMessages({ overview, requirements, bidFileStructure, parentItem, suggestions }) {
+  const systemPrompt = `你是一个专业的标书编写专家。请按招标文件规定的投标文件组成与格式，为已经固定好的一级目录生成二级和三级目录。
+
+要求：
+1. 一级目录标题和顺序已经固定，不能修改、重命名、合并或删除一级目录
+2. 招标文件规定的投标文件组成与格式为最高优先级，二三级目录必须贴合招标文件对当前一级条目应包含内容与编制格式的规定
+3. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身
+4. 返回标准 JSON，格式为 {"children": [...]}，children 中只能包含当前一级目录的直接子目录
+5. 每个节点必须包含 id、title、description，三级目录继续使用 children 字段
+6. 章节编号必须以给定的一级目录编号为前缀，例如父级是 2，则二级目录编号从 2.1 开始，三级目录编号从 2.1.1 开始
+7. ${buildNoFabricationInstruction()}
+8. 除了 JSON 结果外，不要输出任何其他内容
+
+${buildEvidenceBoundaryInstruction()}`;
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `招标文件规定的投标文件组成与格式（最高优先级，必须严格遵循）：\n${bidFileStructure}` },
+    ...(overview ? [{ role: 'user', content: `项目概述（辅助信息）：\n${overview}` }] : []),
+    ...(requirements ? [{ role: 'user', content: `技术评分要求（辅助信息，用于补全 description）：\n${requirements}` }] : []),
+    { role: 'user', content: `当前固定一级目录（请仅围绕该条目在招标文件中对应的组成/格式要求展开）：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
+  ];
+  messages.push({ role: 'user', content: `请仅生成该一级目录下的二级、三级目录，一级目录标题必须保持为当前给定标题，二三级目录需贴合招标文件对“${parentItem.title}”规定的内容与格式，返回格式必须是 {"children": [...]}。${formatSuggestions(suggestions)}` });
+  return messages;
+}
+
 function reviewOutlineMessages({ overview, requirements, outline }) {
   const systemPrompt = `你是一个严格的招标文件目录审核专家。请审核目录是否符合项目概述和技术评分要求。
 
@@ -852,6 +879,19 @@ async function generateChildren(aiService, payload, parentItem, suggestions, log
   return response;
 }
 
+async function generateTenderStructureChildren(aiService, payload, parentItem, suggestions, log, progress) {
+  const response = await collectJson(aiService, {
+    messages: generateTenderStructureChildrenMessages({ ...payload, parentItem, suggestions }),
+    temperature: 0.7,
+    normalizer: (value) => normalizeChildrenResponse(value, new Set()),
+    validator: validateChildrenOutline,
+    progressCallback: (message) => log(message, progress),
+    progressLabel: `章节 ${parentItem.title || '未命名章节'} 子目录`,
+    failureMessage: '模型返回的目录数据格式无效',
+  });
+  return response;
+}
+
 async function generateFallback(aiService, payload, suggestions, log, progressRange = { start: 30, end: 75 }, topProgress = 25) {
   log('正在分步生成目录，先生成一级目录。', topProgress);
   const top = await generateTopLevel(aiService, payload, suggestions, log);
@@ -891,7 +931,7 @@ async function tenderStructureWorkflow(aiService, payload, log) {
   for (const [index, item] of top.outline.entries()) {
     const progress = progressRange.start + Math.round((index / Math.max(top.outline.length, 1)) * (progressRange.end - progressRange.start));
     log(`正在生成第 ${index + 1}/${top.outline.length} 个一级目录的二三级目录：${item.title || '未命名章节'}。`, progress);
-    const childrenResponse = await generateChildren(aiService, payload, item, undefined, log, progress);
+    const childrenResponse = await generateTenderStructureChildren(aiService, payload, item, undefined, log, progress);
     const children = childrenResponse.children || [];
     assembled.push({ id: item.id, title: item.title, description: item.description, ...(children.length ? { children } : {}) });
   }

@@ -117,7 +117,18 @@ async function main() {
     assert.ok(usedTenderStructure, '场景1应走招标格式优先骨架（tenderStructureWorkflow）');
     assert.ok(!usedGroups, '场景1不应调用评分大类提取（不应走 alignedWorkflow）');
     assert.ok(finalPlan.outlineData && (finalPlan.outlineData.outline || []).length, '场景1应生成 outlineData');
-    console.log('[场景1] 招标规定组成 -> 招标格式优先骨架：通过');
+    // 阶段二深化断言：补全二三级目录时，子目录生成消息必须携带 bidFileStructure（最高优先级）与当前父条目标题
+    const childCall = callLog.find((c) => (c.label || '').includes('子目录'));
+    assert.ok(childCall, '场景1应存在子目录生成调用');
+    assert.ok(
+      childCall.user.includes('招标文件规定的投标文件组成与格式'),
+      '场景1子目录生成消息应携带招标投标文件组成/格式（bidFileStructure）',
+    );
+    assert.ok(
+      childCall.user.includes('投标函'),
+      '场景1子目录生成消息应携带当前一级条目标题（父条目）',
+    );
+    console.log('[场景1] 招标规定组成 -> 招标格式优先骨架 + 子目录携带组成/格式与父条目：通过');
   }
 
   // 场景 2：招标文件未规定组成（aligned）-> 回退评分对齐
