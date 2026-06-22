@@ -36,6 +36,7 @@ export default function PrivateKnowledgeBasePage() {
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [statistics, setStatistics] = useState<Record<string, CategoryStats>>({});
   const [loading, setLoading] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingItem, setEditingItem] = useState<KnowledgeItem | null>(null);
@@ -45,6 +46,21 @@ export default function PrivateKnowledgeBasePage() {
   useEffect(() => {
     loadCategories();
     loadStatistics();
+  }, []);
+
+  // 监听私有知识库事件（目录扫描进度等）
+  useEffect(() => {
+    const unsubscribe = window.yibiao?.privateKnowledgeBase.onEvent?.((payload: Record<string, unknown>) => {
+      if (payload?.type === 'scan-progress') {
+        const done = Number(payload.done) || 0;
+        const total = Number(payload.total) || 0;
+        if (done > 0 && done >= total) {
+          void loadItems();
+          void loadStatistics();
+        }
+      }
+    });
+    return () => { unsubscribe?.(); };
   }, []);
 
   // 加载知识项
@@ -184,6 +200,21 @@ export default function PrivateKnowledgeBasePage() {
     e.target.value = '';
   };
 
+  const handleScanAndImport = async () => {
+    setScanLoading(true);
+    try {
+      const result = await window.yibiao?.privateKnowledgeBase.scanAndImportDirectory();
+      if (!result || result.canceled) return;
+      alert(`目录扫描完成：成功 ${result.success} 个文件，失败 ${result.failed} 个文件`);
+      void loadItems();
+      void loadStatistics();
+    } catch (err) {
+      alert(`目录扫描导入失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
   const getCategoryIcon = (categoryId: string) => {
     return categories[categoryId]?.icon || '📄';
   };
@@ -311,6 +342,9 @@ export default function PrivateKnowledgeBasePage() {
               导入
               <input type="file" accept=".json" style={{ display: 'none' }} onChange={handleImport} />
             </label>
+            <button type="button" className="secondary-action" onClick={() => { void handleScanAndImport(); }} disabled={scanLoading}>
+              {scanLoading ? '扫描中...' : '批量导入目录'}
+            </button>
           </div>
 
           {/* 知识项列表 */}

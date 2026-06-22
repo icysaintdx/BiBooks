@@ -595,6 +595,30 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     emit(recoveredTask, buildSnapshot(getTaskDefinition('global-facts-generation'), state, recoveredTask));
   }
 
+  function recoverInterruptedScoringAnalysisTask() {
+    if (activeTasks.has('scoring-analysis')) {
+      return;
+    }
+
+    const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+    const scoringAnalysisTask = technicalPlan.scoringAnalysisTask;
+    if (!isActiveTaskStatus(scoringAnalysisTask?.status)) {
+      return;
+    }
+
+    const message = '上次评分分析未完成，请重新分析';
+    const recoveredTask = {
+      ...scoringAnalysisTask,
+      status: 'error',
+      progress: 100,
+      error: message,
+      logs: [...(Array.isArray(scoringAnalysisTask.logs) ? scoringAnalysisTask.logs : []), message],
+      updated_at: now(),
+    };
+    const state = technicalPlanStore.updateTechnicalPlan({ scoringAnalysisTask: recoveredTask });
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('scoring-analysis'), state, recoveredTask));
+  }
+
   function recoverInterruptedRejectionCheckTasks() {
     const staleExtractionMessage = '上次解析未完成，请重新解析';
     const staleCheckMessage = '上次检查未完成，请重新检查';
@@ -730,6 +754,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     getActiveTasks() {
       recoverInterruptedContentGenerationTask();
       recoverInterruptedGlobalFactsTask();
+      recoverInterruptedScoringAnalysisTask();
       recoverInterruptedRejectionCheckTasks();
       recoverInterruptedDuplicateCheckTask();
       return Array.from(activeTasks.values());

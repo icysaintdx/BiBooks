@@ -1,10 +1,10 @@
 {
-  "version": "v0.16.0",
-  "codename": "大纲格式深化版",
-  "releaseDate": "2026-06-22T21:30:00",
+  "version": "v0.21.0",
+  "codename": "目录扫描入库版",
+  "releaseDate": "2026-06-22T12:00:00",
   "docs": {
-    "total": 17,
-    "feature": 5,
+    "total": 22,
+    "feature": 10,
     "bugfix": 1,
     "version": 0,
     "api": 1,

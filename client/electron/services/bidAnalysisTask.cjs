@@ -99,7 +99,7 @@ const tasks = [
   { id: 'signingProcess', label: '合同授予与签订', required: false, output: 'json', description: '中标公示、合同签订、履约保证金和合同文本。', prompt: () => jsonTask('提取合同授予和签订流程', '提取中标公示、合同签订、履约保证金、合同文本等信息。', `{"bid_notice":"中标公示","contract_sign":"合同签订","performance_bond":"履约保证金","contract_text":"合同文本"}`) },
   { id: 'terminationCondition', label: '合同解除和终止', required: false, output: 'json', description: '违约解除、不可抗力、合同终止和争议解决。', prompt: () => jsonTask('提取合同解除和终止条件', '提取违约解除、不可抗力、合同终止、争议解决等信息。', `{"breach_termination":"违约解除","force_majeure":"不可抗力","contract_termination":"合同终止","dispute_resolution":"争议解决"}`) },
   {
-    id: 'bidFileStructure', label: '投标文件组成与格式', required: false, output: 'markdown',
+    id: 'bidFileStructure', label: '投标文件组成与格式', required: true, output: 'markdown',
     description: '提取招标文件规定的投标文件组成清单、编制顺序和格式要求，作为大纲骨架的依据。',
     prompt: () => `任务：提取招标文件中关于“投标文件组成”“投标文件格式”“投标文件编制”的规定。
 
@@ -113,7 +113,7 @@ const tasks = [
 5. 使用 Markdown 有序列表，不要使用表格。仅输出整理结果。`,
   },
   {
-    id: 'bidFileStructureSchema', label: '投标文件字段结构（机读）', required: false, output: 'json',
+    id: 'bidFileStructureSchema', label: '投标文件字段结构（机读）', required: true, output: 'json',
     description: '把招标对商务标、报价部分的字段要求整理为结构化 JSON，用于动态生成商务标 / 报价表单字段。',
     prompt: () => `任务：根据招标文件原文，整理出投标人编制“商务标”和“报价部分”时需要填写或提交的字段要求，输出为结构化 JSON，供系统动态生成表单字段。
 

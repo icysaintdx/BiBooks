@@ -427,7 +427,13 @@ function createProjectWorkspaceStore({ app, db, technicalPlanStore }) {
     return options.skipList ? undefined : list({ includeDeleted: true });
   }
 
-  clearCurrent();
+  // 启动时恢复上次打开的项目快照；若无当前项目则清空全局技术方案状态
+  const startupProjectId = getCurrentProjectId();
+  if (startupProjectId) {
+    restoreTechnicalPlanSnapshot(startupProjectId);
+  } else {
+    clearCurrent();
+  }
 
   return {
     list,
@@ -441,6 +447,7 @@ function createProjectWorkspaceStore({ app, db, technicalPlanStore }) {
     destroy,
     clearCurrent,
     selectTenderFile,
+    saveTechnicalPlanSnapshot,
   };
 }
 

@@ -62,6 +62,11 @@ function registerPrivateKnowledgeBaseIpc({ privateKnowledgeBaseService }) {
   ipcMain.handle('private-kb:export', (event, category) => {
     return privateKnowledgeBaseService.exportItems(category);
   });
+
+  // 目录扫描并导入
+  ipcMain.handle('private-kb:scan-and-import-directory', (event) => {
+    return privateKnowledgeBaseService.scanAndImportDirectory(event.sender);
+  });
 }
 
 module.exports = { registerPrivateKnowledgeBaseIpc };

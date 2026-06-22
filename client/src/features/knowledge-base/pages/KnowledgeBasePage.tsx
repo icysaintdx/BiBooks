@@ -315,6 +315,14 @@ function KnowledgeBasePage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [visibleDocumentCount, setVisibleDocumentCount] = useState(documentRenderBatchSize);
+  const [scanDialog, setScanDialog] = useState<{
+    open: boolean;
+    step: 'preview' | 'importing' | 'done';
+    preview?: { files: Array<{ filePath: string; fileName: string; ext: string; isDuplicate: boolean; }>; totalCount: number; duplicateCount: number; dirPath: string; };
+    skipDuplicates: boolean;
+    importTotal: number;
+    result?: { success: number; failed: number; };
+  }>({ open: false, step: 'preview', skipDuplicates: true, importTotal: 0 });
   const autoMatchingIdsRef = useRef(new Set<string>());
   const documentParseNoticeIdsRef = useRef(new Set<string>());
   const viewerRequestIdRef = useRef(0);
@@ -563,6 +571,35 @@ function KnowledgeBasePage() {
       showToast(message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleScanDirectory = async () => {
+    if (!activeFolder) { showToast('请先选择文件夹', 'info'); return; }
+    try {
+      const preview = await window.yibiao?.knowledgeBase.previewDirectoryScan(activeFolder.id);
+      if (!preview || preview.canceled) return;
+      if (!preview.totalCount) { showToast('所选目录中未找到支持的文件', 'info'); return; }
+      setScanDialog({ open: true, step: 'preview', skipDuplicates: true, importTotal: 0, preview: preview as Required<typeof preview> });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '扫描目录失败', 'error');
+    }
+  };
+
+  const handleStartScanImport = async () => {
+    const { preview, skipDuplicates } = scanDialog;
+    if (!preview || !activeFolder) return;
+    const filesToImport = preview.files.filter((f) => !skipDuplicates || !f.isDuplicate).map((f) => f.filePath);
+    if (!filesToImport.length) { showToast('没有需要导入的文件', 'info'); return; }
+    setScanDialog((prev) => ({ ...prev, step: 'importing', importTotal: filesToImport.length }));
+    try {
+      const result = await window.yibiao?.knowledgeBase.importFromDirectory(activeFolder.id, filesToImport);
+      setScanDialog((prev) => ({ ...prev, step: 'done', result: { success: result?.success ?? 0, failed: result?.failed ?? 0 } }));
+      const data = await window.yibiao?.knowledgeBase.list();
+      if (data) applyKnowledgeIndex(data);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量导入失败', 'error');
+      setScanDialog({ open: false, step: 'preview', skipDuplicates: true, importTotal: 0 });
     }
   };
 
@@ -821,6 +858,7 @@ function KnowledgeBasePage() {
         </div>
         <div className="knowledge-toolbar-actions">
           <button type="button" className="secondary-action" onClick={() => setShowCreateFolder((value) => !value)} disabled={migrationRunning || listLoading}>新建文件夹</button>
+          <button type="button" className="secondary-action" onClick={() => { void handleScanDirectory(); }} disabled={loading || migrationRunning || !activeFolder}>扫描目录</button>
           <button type="button" className="primary-action" onClick={uploadDocuments} disabled={loading || migrationRunning || !activeFolder}>
             {migrationRunning ? '迁移中...' : loading ? '处理中...' : '上传文档'}
           </button>
@@ -950,6 +988,79 @@ function KnowledgeBasePage() {
         </section>
       </div>
       {migrationDialog}
+      <Dialog.Root open={scanDialog.open} onOpenChange={(open) => !open && scanDialog.step !== 'importing' && setScanDialog((prev) => ({ ...prev, open: false }))}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="knowledge-migration-card">
+            <Dialog.Title className="sr-only">扫描目录批量导入</Dialog.Title>
+            <Dialog.Description className="sr-only">选择目录批量导入知识库文档</Dialog.Description>
+            {scanDialog.step === 'preview' && scanDialog.preview && (
+              <>
+                <div className="knowledge-migration-head">
+                  <span className="section-kicker">批量导入</span>
+                  <h2>扫描目录预览</h2>
+                  <p style={{ fontSize: '13px', color: 'var(--text-secondary, #666)', wordBreak: 'break-all' }}>
+                    {scanDialog.preview.dirPath}
+                  </p>
+                </div>
+                <div style={{ padding: '0 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <p>共找到 <strong>{scanDialog.preview.totalCount}</strong> 个支持的文件
+                    {scanDialog.preview.duplicateCount > 0 && (
+                      <span style={{ color: 'var(--color-warning, #f59e0b)', marginLeft: '8px' }}>
+                        （含 {scanDialog.preview.duplicateCount} 个同名文件）
+                      </span>
+                    )}
+                  </p>
+                  {scanDialog.preview.duplicateCount > 0 && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      <input
+                        type="checkbox"
+                        checked={scanDialog.skipDuplicates}
+                        onChange={(e) => setScanDialog((prev) => ({ ...prev, skipDuplicates: e.target.checked }))}
+                      />
+                      跳过同名文件（避免重复导入）
+                    </label>
+                  )}
+                </div>
+                <div className="knowledge-migration-actions">
+                  <button type="button" className="secondary-action" onClick={() => setScanDialog((prev) => ({ ...prev, open: false }))}>取消</button>
+                  <button type="button" className="primary-action" onClick={() => { void handleStartScanImport(); }}>
+                    开始导入（{scanDialog.skipDuplicates ? scanDialog.preview.totalCount - scanDialog.preview.duplicateCount : scanDialog.preview.totalCount} 个文件）
+                  </button>
+                </div>
+              </>
+            )}
+            {scanDialog.step === 'importing' && (
+              <div style={{ padding: '24px', textAlign: 'center' }}>
+                <div className="knowledge-migration-head">
+                  <span className="section-kicker">正在导入</span>
+                  <h2>批量导入中...</h2>
+                </div>
+                <p style={{ color: 'var(--text-secondary, #666)', marginTop: '8px' }}>
+                  正在导入 {scanDialog.importTotal} 个文件，请稍候
+                </p>
+              </div>
+            )}
+            {scanDialog.step === 'done' && (
+              <>
+                <div className="knowledge-migration-head">
+                  <span className="section-kicker">导入完成</span>
+                  <h2>批量导入结果</h2>
+                </div>
+                <div style={{ padding: '0 24px' }}>
+                  <p>成功：<strong>{scanDialog.result?.success ?? 0}</strong> 个文件</p>
+                  {(scanDialog.result?.failed ?? 0) > 0 && (
+                    <p style={{ color: 'var(--color-error, #ef4444)' }}>失败：{scanDialog.result?.failed} 个文件（可单独上传重试）</p>
+                  )}
+                </div>
+                <div className="knowledge-migration-actions">
+                  <button type="button" className="primary-action" onClick={() => setScanDialog({ open: false, step: 'preview', skipDuplicates: true, importTotal: 0 })}>完成</button>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   );
 }

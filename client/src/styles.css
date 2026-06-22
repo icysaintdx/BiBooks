@@ -925,6 +925,7 @@ button {
 
 .module-section-title {
   display: block;
+  margin-top: 4px;
   margin-bottom: 12px;
   color: var(--yb-text);
   font-size: 15px;
@@ -1252,6 +1253,10 @@ button {
   align-items: start;
 }
 
+.business-bid-layout.no-aside {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .business-bid-main {
   min-width: 0;
 }
@@ -1317,7 +1322,7 @@ button {
 
 .business-template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
 
@@ -2367,6 +2372,14 @@ button {
 .bid-orchestration-status.is-todo {
   color: var(--yb-text-soft);
   background: rgba(120, 128, 140, 0.12);
+}
+
+.bid-orchestration-detail {
+  margin: 0;
+  font-size: 11px;
+  color: var(--yb-text-soft);
+  line-height: 1.4;
+  opacity: 0.8;
 }
 
 @media (max-width: 1080px) {

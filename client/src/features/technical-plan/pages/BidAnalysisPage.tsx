@@ -37,7 +37,7 @@ const modeOptions: Array<{ id: BidAnalysisMode; title: string; desc: string; bad
 ];
 
 const taskGroups = [
-  { title: '关键项', ids: ['projectOverview', 'techRequirements', 'projectInfo', 'partAInfo', 'deliveryAndServiceRequirements'] },
+  { title: '关键项', ids: ['projectOverview', 'techRequirements', 'projectInfo', 'partAInfo', 'deliveryAndServiceRequirements', 'bidFileStructure', 'bidFileStructureSchema'] },
   { title: '投标流程', ids: ['keyInfo', 'marginInfo', 'openBid'] },
   { title: '评审要求', ids: ['qualificationReview', 'complianceCheck', 'evaluationBid', 'businessScoring'] },
   { title: '主体与合同', ids: ['agentInfo', 'discardedBids', 'signingProcess', 'terminationCondition'] },
@@ -313,8 +313,8 @@ function BidAnalysisPage({
             <Dialog.Portal>
               <Dialog.Overlay className="dialog-overlay" />
               <Dialog.Content className="dialog-content scoring-analysis-dialog">
-                <Dialog.Title className="dialog-title">智能评分分析</Dialog.Title>
-                <Dialog.Description className="dialog-description">
+                <Dialog.Title className="sr-only">智能评分分析</Dialog.Title>
+                <Dialog.Description className="sr-only">
                   自动解析技术评分要求，提取评分大类、权重分布和编写建议。
                 </Dialog.Description>
                 <ScoringAnalysisPage

@@ -354,7 +354,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
         </div>
       </header>
 
-      <div className="business-bid-layout">
+      <div className={`business-bid-layout${savedBids.length === 0 ? ' no-aside' : ''}`}>
         {savedBids.length > 0 && (
           <aside className="module-panel business-history-panel">
             <strong className="module-section-title">历史草稿</strong>

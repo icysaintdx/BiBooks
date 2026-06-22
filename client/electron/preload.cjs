@@ -72,6 +72,8 @@ const bridge = {
     deleteFolder: (folderId) => ipcRenderer.invoke('knowledge-base:delete-folder', folderId),
     deleteDocument: (documentId) => ipcRenderer.invoke('knowledge-base:delete-document', documentId),
     uploadDocuments: (folderId) => ipcRenderer.invoke('knowledge-base:upload-documents', folderId),
+    previewDirectoryScan: (folderId) => ipcRenderer.invoke('knowledge-base:preview-directory-scan', folderId),
+    importFromDirectory: (folderId, filePaths) => ipcRenderer.invoke('knowledge-base:import-from-directory', folderId, filePaths),
     startMatching: (documentId, batchSize) => ipcRenderer.invoke('knowledge-base:start-matching', documentId, batchSize),
     readMarkdown: (documentId) => ipcRenderer.invoke('knowledge-base:read-markdown', documentId),
     readItems: (documentId) => ipcRenderer.invoke('knowledge-base:read-items', documentId),
@@ -168,6 +170,12 @@ const bridge = {
     getStatistics: () => ipcRenderer.invoke('private-kb:get-statistics'),
     importItems: (items) => ipcRenderer.invoke('private-kb:import', items),
     exportItems: (category) => ipcRenderer.invoke('private-kb:export', category),
+    scanAndImportDirectory: () => ipcRenderer.invoke('private-kb:scan-and-import-directory'),
+    onEvent: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('private-kb:event', listener);
+      return () => ipcRenderer.removeListener('private-kb:event', listener);
+    },
   },
   pricing: {
     list: () => ipcRenderer.invoke('pricing:list'),

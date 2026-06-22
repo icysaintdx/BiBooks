@@ -1,5 +1,104 @@
 # 更新日志
 
+## [v0.21.0] - 2026-06-22 12:00
+**版本代号**: 目录扫描入库版
+**文档总数**: 22
+
+### 🆕 新增功能
+#### 知识库目录扫描批量导入 ⭐
+- **功能**: 知识库新增"扫描目录"入口，递归扫描本地目录中所有支持格式（18 种，含图片/Office/文档），预览文件列表和同名文件标注，用户可选择跳过同名文件，并发 3 路批量解析并 AI 提取知识条目；图片解析失败时自动回退到 Vision API 识别
+- **位置**: `client/electron/services/knowledgeBaseService.cjs`（扫描 + 导入 + Vision 回退）、`client/src/features/knowledge-base/pages/KnowledgeBasePage.tsx`（预览/导入对话框）
+- **文档**: [目录扫描自动入库已完成](docs/feature/目录扫描自动入库已完成.md)
+- **文件**: `client/electron/services/aiService.cjs` `client/electron/services/knowledgeBaseService.cjs` `client/electron/ipc/knowledgeBaseIpc.cjs` `client/electron/preload.cjs` `client/src/features/knowledge-base/pages/KnowledgeBasePage.tsx` `client/src/shared/types/ipc.ts`
+
+#### 企业知识库目录扫描批量导入 ⭐
+- **功能**: 企业知识库新增"批量导入目录"入口，扫描目录后调用 AI 对每个文件进行类型分类（公司/团队/案例/中标方案/模板/通用内容），自动创建对应知识项并实时推送进度
+- **位置**: `client/electron/services/privateKnowledgeBase.cjs`（scanAndImportDirectory）、`client/src/features/knowledge-base/pages/PrivateKnowledgeBasePage.tsx`
+- **文档**: [目录扫描自动入库已完成](docs/feature/目录扫描自动入库已完成.md)
+- **文件**: `client/electron/services/privateKnowledgeBase.cjs` `client/electron/ipc/privateKnowledgeBaseIpc.cjs` `client/electron/preload.cjs` `client/src/features/knowledge-base/pages/PrivateKnowledgeBasePage.tsx`
+
+### 📚 文档更新
+- [目录扫描自动入库已完成](docs/feature/目录扫描自动入库已完成.md) ⭐
+
+---
+
+## [v0.20.0] - 2026-06-22 10:00
+**版本代号**: 评分分析修复版
+**文档总数**: 21
+
+### 🐛 Bug修复
+#### Step02 默认解析模式改为完整解析 ⭐
+- **问题**: Step02 招标文件解析默认为"只解析关键项"，bidFileStructure/bidFileStructureSchema 等关键任务无法触发
+- **修复**: `bidAnalysisMode` 初始值由 `'key'` 改为 `'full'`；`requiredBidAnalysisTasks` 由 `getBidAnalysisTasks('key')` 改为 `getBidAnalysisTasks('full')`
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
+
+#### 评分分析模态框样式重叠 ⭐
+- **问题**: Dialog.Title / Dialog.Description 与 ScoringAnalysisPage 内部同名标题同时渲染，导致标题和描述重复显示
+- **修复**: 将 Dialog.Title 和 Dialog.Description 改为 `className="sr-only"`，保留无障碍语义但隐藏视觉显示
+- **文件**: `client/src/features/technical-plan/pages/BidAnalysisPage.tsx`
+
+#### 评分分析永远显示"分析中..." ⭐
+- **问题**: `runScoringAnalysisTask` 调用 `updateTask` 时未传 `workspaceState`，导致进度和完成事件从未通过 IPC emit 给前端；任务完成后前端状态仍停在 running
+- **原因**: 参照 `outlineGenerationTask.cjs` 的两步模式（先 persist，再 `updateTask(partial, persistedState)` 触发 emit），scoringAnalysisTask 只调用一次且无第二参数
+- **修复**: 按两步模式重写 `runScoringAnalysisTask`；新增 `recoverInterruptedScoringAnalysisTask` 用于启动时将遗留的 running 状态恢复为 error
+- **文件**: `client/electron/services/scoringAnalysisTask.cjs` `client/electron/services/taskService.cjs`
+
+### 📚 文档更新
+- [评分分析修复已完成](docs/feature/评分分析修复已完成.md) ⭐
+
+---
+
+## [v0.19.0] - 2026-06-23 00:30
+**版本代号**: 导出校验深化版
+**文档总数**: 20
+
+### 🆕 新增功能
+#### 导出归档一致性校验深化 ⭐
+- **功能**: `buildProjectExportPreview` 利用 `bidFileStructureSchema` 和 `projectInfo` 新增 4 项深度校验：招标要求资质覆盖（缺少必备资质 → major）、业绩数量达标（不足招标最低要求 → major）、报价预算偏离（超 30% → minor）、资质关键字段缺失（缺证书编号 → minor）。校验从"有没有"升级到"够不完"
+- **位置**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`（import buildFormSchema + buildProjectExportPreview 参数 + 4 项新校验 + call sites）
+- **文档**: [导出校验深化已完成](docs/feature/导出校验深化已完成.md)
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`
+
+### 📚 文档更新
+- [导出校验深化已完成](docs/feature/导出校验深化已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（导出校验深化移至已落地）⭐
+
+---
+
+## [v0.18.0] - 2026-06-22 23:30
+**版本代号**: 编排进度深化版
+**文档总数**: 19
+
+### 🆕 新增功能
+#### 编排区进度联动深化 ⭐
+- **功能**: 编排卡片新增完成度详情（detail），商务标显示资质/业绩已填数量和生成状态，报价显示已填报价项数和含税合计金额。用户一眼看出"还缺什么"
+- **位置**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`（OrchestrationBlock 接口 + useEffect detail 计算 + BidOrchestrationBand 渲染）
+- **文档**: [编排进度联动深化已完成](docs/feature/编排进度联动深化已完成.md)
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx` `client/src/styles.css`
+
+### 📚 文档更新
+- [编排进度联动深化已完成](docs/feature/编排进度联动深化已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（进度联动深化移至已落地）⭐
+
+---
+
+## [v0.17.0] - 2026-06-22 22:30
+**版本代号**: 格式范本驱动内容版
+**文档总数**: 18
+
+### 🆕 新增功能
+#### 内容生成消费格式范本 ⭐
+- **功能**: 内容生成阶段读取 `formatTemplateTables` 解析结果，当格式范本非空时注入编排 prompt 和内容生成 prompt；内容生成 prompt 进一步检查上级章节的 `format_ref` 字段，如有则追加精细化格式引用提示，让 AI 按招标格式范本编写正文。全程容错，缺失时不注入，行为不变
+- **位置**: `client/electron/services/contentGenerationTask.cjs`（runContentGenerationTask 读取 + buildChapterContentPlanMessages / buildChapterContentMessages prompt 注入）
+- **文档**: [内容生成消费格式范本已完成](docs/feature/内容生成消费格式范本已完成.md)
+- **文件**: `client/electron/services/contentGenerationTask.cjs` `client/scripts/content-format-template-smoke.cjs`
+
+### 📚 文档更新
+- [内容生成消费格式范本已完成](docs/feature/内容生成消费格式范本已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（内容生成消费 formatTemplateTables 移至已落地）⭐
+
+---
+
 ## [v0.16.0] - 2026-06-22 21:30
 **版本代号**: 大纲格式深化版
 **文档总数**: 17

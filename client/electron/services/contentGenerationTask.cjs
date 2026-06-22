@@ -515,7 +515,7 @@ function renderKnowledgeItemsForPrompt(items) {
   })).filter((item) => item.id && item.title && item.resume), null, 2);
 }
 
-function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapters, projectOverview, bidAnalysisFactsText, globalFactTitlesText, regenerateRequirement, tableRequirement, maxTables, tableTotalSections, imageGenerationAvailable, mermaidGenerationAvailable, maxAiImages, totalSections, knowledgeItems }) {
+function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapters, projectOverview, bidAnalysisFactsText, globalFactTitlesText, regenerateRequirement, tableRequirement, maxTables, tableTotalSections, imageGenerationAvailable, mermaidGenerationAvailable, maxAiImages, totalSections, knowledgeItems, formatTemplateTables }) {
   const chapterId = chapter.id || 'unknown';
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
@@ -561,6 +561,10 @@ ${renderKnowledgeItemsForPrompt(knowledgeItems)}`,
   }
   if (String(bidAnalysisFactsText || '').trim()) {
     messages.push({ role: 'user', content: `Step02 关键解析结果（用于判断正文需要引用哪些事实）：\n${bidAnalysisFactsText}` });
+  }
+  // 仅当本章节上级链携带格式引用（format_ref）时才注入格式范本，避免对无格式要求的章节重复发送大段范本。
+  if (String(formatTemplateTables || '').trim() && (parentChapters || []).some((p) => p.format_ref)) {
+    messages.push({ role: 'user', content: `招标文件中的格式范本模板（如本章节有格式要求，请参照对应格式编写正文）：\n${formatTemplateTables}` });
   }
   if (String(globalFactTitlesText || '').trim()) {
     messages.push({ role: 'user', content: `Step04 全局事实变量标题清单（编排时只能选择标题，不要输出具体变量内容）：\n${globalFactTitlesText}` });
@@ -636,7 +640,7 @@ function formatKnowledgeContentsForPrompt(contents) {
     .join('\n\n');
 }
 
-function buildChapterContentMessages({ chapter, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }) {
+function buildChapterContentMessages({ chapter, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents, formatTemplateTables }) {
   const chapterId = chapter.id || 'unknown';
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
@@ -670,6 +674,14 @@ ${buildEvidenceBoundaryInstruction({ finalDocument: true })}`,
   }
   if (String(industryContext || '').trim()) {
     messages.push({ role: 'user', content: `行业参考边界：\n${industryContext}` });
+  }
+  if (String(formatTemplateTables || '').trim()) {
+    const parentFormatRef = (parentChapters || []).map((p) => p.format_ref).filter(Boolean);
+    // 仅当上级链携带格式引用时才注入格式范本，避免对无格式要求的章节重复发送大段范本。
+    if (parentFormatRef.length) {
+      messages.push({ role: 'user', content: `招标文件中的格式范本模板（如本章节有格式要求，请严格参照对应格式范本编写正文，保持表格结构、填写说明等与范本一致）：\n${formatTemplateTables}` });
+      messages.push({ role: 'user', content: `本章节所属上级章节的格式要求：${parentFormatRef.join('；')}。请严格遵循对应的格式范本编写正文。` });
+    }
   }
   appendSelectedFactsMessage(messages, selectedFactsText);
 
@@ -2256,6 +2268,8 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   const globalFactTitlesText = formatGlobalFactTitlesForPrompt(globalFacts);
   const allowedFactTitles = new Set(globalFacts.map((group) => singleLine(group?.title)).filter(Boolean));
   const bidAnalysisFactsText = formatBidAnalysisFactsForPrompt(storedPlan);
+  const fttTask = storedPlan.bidAnalysisTasks?.formatTemplateTables;
+  const formatTemplateTables = fttTask?.status === 'success' ? String(fttTask.content || '').trim() : '';
 
   const projectOverview = outlineData.project_overview || storedPlan.projectOverview || '';
   const techRequirements = storedPlan.techRequirements || '';
@@ -2678,6 +2692,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
           maxAiImages: runLimits.maxAiImagesForRun,
           totalSections: tasksToRun.length,
           knowledgeItems,
+          formatTemplateTables,
         }),
         temperature: 0.2,
         logTitle: `正文编排-${item.id}-${item.title || '未命名章节'}`,
@@ -2820,7 +2835,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
       const selectedFactsText = resolveSelectedFactsText(contentPlan, globalFacts);
 
       const generatedContent = await aiService.chat({
-        messages: buildChapterContentMessages({ chapter: item, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }),
+        messages: buildChapterContentMessages({ chapter: item, parentChapters, siblingChapters, projectOverview, industryContext, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents, formatTemplateTables }),
         temperature: 0.7,
         logTitle: `正文生成-${item.id}-${item.title || '未命名章节'}`,
       });
@@ -3862,4 +3877,4 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   }
 }
 
-module.exports = { runContentGenerationTask, stripRepeatedChapterTitle };
+module.exports = { runContentGenerationTask, stripRepeatedChapterTitle, buildChapterContentMessages, buildChapterContentPlanMessages };

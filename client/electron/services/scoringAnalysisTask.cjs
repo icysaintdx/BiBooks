@@ -123,7 +123,8 @@ async function runScoringAnalysisTask({ aiService, workspaceStore, updateTask, p
   }
 
   const logs = ['开始智能评分分析。'];
-  updateTask({ status: 'running', progress: 10, logs });
+  let technicalPlan = workspaceStore.updateTechnicalPlan({ scoringAnalysisTask: updateTask({ status: 'running', progress: 10, logs }) });
+  updateTask({ status: 'running', progress: 10, logs }, technicalPlan);
 
   const analysis = await aiService.collectJsonResponse({
     messages: buildScoringAnalysisMessages(requirements),
@@ -131,27 +132,26 @@ async function runScoringAnalysisTask({ aiService, workspaceStore, updateTask, p
     normalizer: normalizeScoringAnalysisResponse,
     progressCallback: (message) => {
       logs.push(message);
-      updateTask({ status: 'running', progress: 50, logs });
+      technicalPlan = workspaceStore.updateTechnicalPlan({ scoringAnalysisTask: updateTask({ status: 'running', progress: 50, logs }) });
+      updateTask({ status: 'running', progress: 50, logs }, technicalPlan);
     },
     progressLabel: '评分分析',
     failureMessage: '模型返回的评分分析格式无效',
   });
 
-  // 存储分析结果到技术方案
-  workspaceStore.updateTechnicalPlan({
-    scoringAnalysis: analysis,
-  });
-
   const summaryLog = `评分分析完成：${analysis.scoringItems.length} 个评分大类，总分 ${analysis.totalScore} 分。`;
-  updateTask({
+  const finalLogs = [...logs, summaryLog];
+  const finalTask = updateTask({
     status: 'success',
     progress: 100,
-    logs: [...logs, summaryLog],
+    logs: finalLogs,
     stats: {
       scoringItemCount: analysis.scoringItems.length,
       totalScore: analysis.totalScore,
     },
   });
+  technicalPlan = workspaceStore.updateTechnicalPlan({ scoringAnalysis: analysis, scoringAnalysisTask: finalTask });
+  updateTask({ status: 'success', progress: 100, logs: finalLogs, stats: finalTask.stats }, technicalPlan);
 
   return analysis;
 }

@@ -1218,6 +1218,27 @@ function createAiService({ app, configStore }) {
     };
   }
 
+  const IMAGE_VISION_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff', webp: 'image/webp' };
+
+  async function analyzeImageWithVision(imagePath, fileName) {
+    const config = configStore.load();
+    const ext = path.extname(imagePath).toLowerCase().replace('.', '');
+    const mimeType = IMAGE_VISION_MIME[ext] || 'image/jpeg';
+    const stat = fs.statSync(imagePath);
+    if (stat.size > 5 * 1024 * 1024) {
+      throw new Error(`图片文件过大（${(stat.size / 1024 / 1024).toFixed(1)} MB），Vision 识别仅支持 5 MB 以内的图片`);
+    }
+    const imageBase64 = fs.readFileSync(imagePath).toString('base64');
+    const messages = [{
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+        { type: 'text', text: `请详细识别并描述这张图片（文件名：${fileName}）中的所有内容，包括可见文字、表格、图表和结构性信息，以结构化 Markdown 格式完整输出所有文字内容。` },
+      ],
+    }];
+    return chatWithConfig(app, config, { messages, temperature: 0.2 });
+  }
+
   return {
     async chat(request) {
       const config = configStore.load();
@@ -1277,6 +1298,8 @@ function createAiService({ app, configStore }) {
       const config = configStore.load();
       return createModuleDeveloperLogger(app, config, moduleName, request);
     },
+
+    analyzeImageWithVision,
 
     async generateImage(request) {
       const config = configStore.load();

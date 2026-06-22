@@ -13,6 +13,7 @@ interface OutlineEditPageProps {
   referenceKnowledgeDocumentIds: string[];
   outlineData: OutlineData | null;
   task?: BackgroundTaskState;
+  hasTenderFileStructure?: boolean;
   onOutlineConfigChange: (mode: OutlineMode, documentIds: string[]) => void;
   onOutlineGenerated: (outlineData: OutlineData) => void;
 }
@@ -113,6 +114,7 @@ function OutlineEditPage({
   referenceKnowledgeDocumentIds,
   outlineData,
   task,
+  hasTenderFileStructure = false,
   onOutlineConfigChange,
   onOutlineGenerated,
 }: OutlineEditPageProps) {
@@ -227,6 +229,12 @@ function OutlineEditPage({
       return;
     }
 
+    // 招标文件已规定投标文件组成，直接按招标格式优先生成，无需手动选模式
+    if (hasTenderFileStructure) {
+      generateOutline(outlineMode, referenceKnowledgeDocumentIds);
+      return;
+    }
+
     setDraftOutlineMode(outlineMode);
     setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
     setKnowledgeSearch('');
@@ -239,22 +247,24 @@ function OutlineEditPage({
     showToast('目录生成配置已保存', 'success');
   };
 
-  const generateOutline = async () => {
+  const generateOutline = async (overrideMode?: OutlineMode, overrideDocIds?: string[]) => {
     if (!projectOverview || !techRequirements) {
       showToast('请先完成招标文件解析', 'info');
       return;
     }
+    const mode = overrideMode ?? draftOutlineMode;
+    const docIds = overrideDocIds ?? draftKnowledgeDocumentIds;
 
     try {
       const startedNow = Date.now();
       setStartingOutline(true);
       setLocalStartAt(startedNow);
       setNowTick(startedNow);
-      onOutlineConfigChange(draftOutlineMode, draftKnowledgeDocumentIds);
+      onOutlineConfigChange(mode, docIds);
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
-        mode: draftOutlineMode,
-        reference_knowledge_document_ids: draftKnowledgeDocumentIds,
+        mode,
+        reference_knowledge_document_ids: docIds,
       });
       showToast('目录生成任务已在后台启动', 'success');
     } catch (error) {
@@ -730,7 +740,7 @@ function OutlineEditPage({
               <button type="button" className="secondary-action" onClick={saveOutlineConfig} disabled={generating}>
                 保存配置
               </button>
-              <button type="button" className="primary-action" onClick={generateOutline} disabled={generating || !projectOverview || !techRequirements}>
+              <button type="button" className="primary-action" onClick={() => generateOutline()} disabled={generating || !projectOverview || !techRequirements}>
                 开始生成
               </button>
             </div>

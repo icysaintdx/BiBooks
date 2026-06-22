@@ -3,7 +3,11 @@
  * 企业专属标书知识库，支持存储企业简介、团队信息、案例库、过往中标方案等
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
+const { dialog } = require('electron');
 const { logInfo, logError } = require('../utils/logger.cjs');
+const { parseDocumentWithConfig } = require('./fileService.cjs');
 
 // 知识库分类定义
 const KNOWLEDGE_CATEGORIES = {
@@ -106,7 +110,7 @@ const KNOWLEDGE_CATEGORIES = {
 /**
  * 创建私有知识库服务
  */
-function createPrivateKnowledgeBaseService({ db }) {
+function createPrivateKnowledgeBaseService({ db, app, aiService, configStore }) {
   // 初始化数据库表
   initializeDatabase(db);
 
@@ -364,6 +368,101 @@ function createPrivateKnowledgeBaseService({ db }) {
     return listItems(category);
   }
 
+  const SCAN_SUPPORTED_EXTENSIONS = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown', '.txt', '.ppt', '.pptx', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp']);
+
+  function scanDirRecursive(dirPath, maxFiles = 500) {
+    const results = [];
+    function walk(dir) {
+      if (results.length >= maxFiles) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (results.length >= maxFiles) return;
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(fullPath);
+        else if (entry.isFile() && SCAN_SUPPORTED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+          results.push(fullPath);
+        }
+      }
+    }
+    walk(dirPath);
+    return results;
+  }
+
+  async function scanAndImportDirectory(webContents) {
+    if (!app || !aiService || !configStore) {
+      throw new Error('目录扫描功能需要 app、aiService 和 configStore 依赖');
+    }
+
+    const result = await dialog.showOpenDialog({ title: '选择要批量导入到企业知识库的目录', properties: ['openDirectory'] });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+    const dirPath = result.filePaths[0];
+    const allFiles = scanDirRecursive(dirPath);
+    const config = configStore.load();
+    const categoryList = Object.keys(KNOWLEDGE_CATEGORIES).join('、');
+
+    let successCount = 0;
+    let failedCount = 0;
+    const CONCURRENCY = 3;
+    const queue = [...allFiles];
+    let activeCount = 0;
+
+    const processOneFile = async (filePath) => {
+      const fileName = path.basename(filePath);
+      try {
+        if (webContents && !webContents.isDestroyed()) {
+          webContents.send('private-kb:event', { type: 'scan-progress', filePath, fileName, total: allFiles.length, done: successCount + failedCount });
+        }
+        const rawMarkdown = await parseDocumentWithConfig(app, filePath, config, { preserveImages: false });
+        const markdown = String(rawMarkdown || '').trim();
+        if (!markdown) throw new Error('文件解析后为空');
+
+        const prompt = `你是企业知识库助手。请分析以下内容（来源文件：${fileName}），判断它属于哪种企业信息类型（可选值：${categoryList}），提取结构化信息。\n\n文件内容：\n${markdown.slice(0, 4000)}\n\n仅返回 JSON，格式：{ "category": "可选值之一", "title": "简短标题", "summary": "内容摘要（100字以内）", "tags": ["标签1","标签2"] }`;
+        const aiResponse = await aiService.chat({ messages: [{ role: 'user', content: prompt }], temperature: 0.3 });
+        let parsed;
+        try {
+          const jsonMatch = String(aiResponse || '').match(/\{[\s\S]*\}/);
+          parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        } catch {
+          parsed = null;
+        }
+
+        const category = (parsed?.category && KNOWLEDGE_CATEGORIES[parsed.category]) ? parsed.category : 'reusable_blocks';
+        const title = String(parsed?.title || fileName).trim().slice(0, 100) || fileName;
+        const summary = String(parsed?.summary || '').trim().slice(0, 300);
+        const tags = Array.isArray(parsed?.tags) ? parsed.tags.map((t) => String(t).trim()).filter(Boolean) : [];
+        createItem(category, title, { description: markdown.slice(0, 8000), summary, source_file: fileName }, tags);
+        successCount++;
+      } catch (err) {
+        logError('[private-kb] 扫描导入文件失败', { filePath, error: err.message });
+        failedCount++;
+      }
+      if (webContents && !webContents.isDestroyed()) {
+        webContents.send('private-kb:event', { type: 'scan-progress', filePath, fileName, total: allFiles.length, done: successCount + failedCount });
+      }
+    };
+
+    await new Promise((resolve) => {
+      function next() {
+        while (activeCount < CONCURRENCY && queue.length > 0) {
+          const fp = queue.shift();
+          activeCount++;
+          processOneFile(fp).finally(() => {
+            activeCount--;
+            next();
+            if (activeCount === 0 && queue.length === 0) resolve();
+          });
+        }
+        if (activeCount === 0 && queue.length === 0) resolve();
+      }
+      next();
+    });
+
+    logInfo('[private-kb] 目录扫描导入完成', { total: allFiles.length, success: successCount, failed: failedCount });
+    return { canceled: false, total: allFiles.length, success: successCount, failed: failedCount };
+  }
+
   return {
     getCategories: () => KNOWLEDGE_CATEGORIES,
     createItem,
@@ -377,6 +476,7 @@ function createPrivateKnowledgeBaseService({ db }) {
     incrementUsage,
     importItems,
     exportItems,
+    scanAndImportDirectory,
   };
 }
 

@@ -262,7 +262,7 @@ export const bidAnalysisTasks: BidAnalysisTaskDefinition[] = [
     id: 'bidFileStructure',
     label: '投标文件组成与格式',
     description: '提取招标文件规定的投标文件组成清单、编制顺序和格式要求，作为大纲骨架的依据。',
-    required: false,
+    required: true,
     output: 'markdown',
     buildTaskPrompt: () => `任务：提取招标文件中关于“投标文件组成”“投标文件格式”“投标文件编制”的规定。
 
@@ -279,7 +279,7 @@ export const bidAnalysisTasks: BidAnalysisTaskDefinition[] = [
     id: 'bidFileStructureSchema',
     label: '投标文件字段结构（机读）',
     description: '把招标对商务标、报价部分的字段要求整理为结构化 JSON，用于动态生成商务标 / 报价表单字段。',
-    required: false,
+    required: true,
     output: 'json',
     buildTaskPrompt: () => `任务：根据招标文件原文，整理出投标人编制“商务标”和“报价部分”时需要填写或提交的字段要求，输出为结构化 JSON，供系统动态生成表单字段。
 

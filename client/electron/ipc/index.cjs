@@ -210,7 +210,7 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
     const versionManagementStore = createVersionManagementStore({ db: sqliteDatabase.db });
     const competitiveAnalysisService = createCompetitiveAnalysisService();
     const complianceCheckService = createComplianceCheckService();
-    const privateKnowledgeBaseService = createPrivateKnowledgeBaseService({ db: sqliteDatabase.db });
+    const privateKnowledgeBaseService = createPrivateKnowledgeBaseService({ db: sqliteDatabase.db, app, aiService, configStore });
     const apiServer = createApiServer({
       configStore,
       technicalPlanStore,
@@ -537,6 +537,17 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
       onError: (message) => {
         webContents.send('app:update-error', { message });
       },
+    });
+    // 软件退出前保存当前项目快照，确保下次启动能恢复到退出时的状态
+    app.on('before-quit', () => {
+      try {
+        const currentProjectId = projectWorkspaceStore.getCurrent()?.id;
+        if (currentProjectId) {
+          projectWorkspaceStore.saveTechnicalPlanSnapshot(currentProjectId);
+        }
+      } catch (e) {
+        // 退出流程中静默忽略快照保存失败，不阻塞退出
+      }
     });
   });
 }

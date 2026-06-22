@@ -380,6 +380,8 @@ export interface YibiaoBridge {
     deleteFolder: (folderId: string) => Promise<KnowledgeBaseMutationResult>;
     deleteDocument: (documentId: string) => Promise<KnowledgeBaseMutationResult>;
     uploadDocuments: (folderId: string) => Promise<KnowledgeBaseUploadResult>;
+    previewDirectoryScan: (folderId: string) => Promise<{ canceled: boolean; dirPath?: string; files?: Array<{ filePath: string; fileName: string; ext: string; isDuplicate: boolean; }>; totalCount?: number; duplicateCount?: number; }>;
+    importFromDirectory: (folderId: string, filePaths: string[]) => Promise<{ success: number; failed: number; total: number; documents: KnowledgeDocument[] }>;
     startMatching: (documentId: string, batchSize: number) => Promise<KnowledgeBaseStartMatchingResult>;
     readMarkdown: (documentId: string) => Promise<string>;
     readItems: (documentId: string) => Promise<KnowledgeItem[]>;
@@ -467,6 +469,8 @@ export interface YibiaoBridge {
     getStatistics: () => Promise<Record<string, { count: number; total_usage: number }>>;
     importItems: (items: Array<{ category: string; title: string; data: Record<string, unknown>; tags?: string[] }>) => Promise<{ success: number; failed: number; errors: Array<{ item: unknown; error: string }> }>;
     exportItems: (category?: string) => Promise<PrivateKnowledgeItem[]>;
+    scanAndImportDirectory: () => Promise<{ canceled: boolean; total?: number; success?: number; failed?: number }>;
+    onEvent?: (callback: (payload: Record<string, unknown>) => void) => () => void;
   };
   pricing: {
     list: () => Promise<unknown[]>;

@@ -7,7 +7,10 @@ const { getKnowledgeBaseDir } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { parseDocumentWithConfig } = require('./fileService.cjs');
 
-const supportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
+const DOCUMENT_EXTENSIONS_ARR = ['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown', '.txt', '.ppt', '.pptx', '.xlsx', '.xls'];
+const IMAGE_EXTENSIONS_ARR = ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp'];
+const supportedExtensions = new Set([...DOCUMENT_EXTENSIONS_ARR, ...IMAGE_EXTENSIONS_ARR]);
+const IMAGE_EXTENSIONS_SET = new Set(IMAGE_EXTENSIONS_ARR);
 const oversizedBlockChars = 8000;
 const semanticMergeTargetChars = 500;
 const recoveryMaxAttempts = 2;
@@ -66,6 +69,25 @@ function getMatchSummary(matches) {
 
 function stripMarkdownFence(content) {
   return String(content || '').replace(/^```[\s\S]*?\n/, '').replace(/```$/g, '').trim();
+}
+
+function scanDirectoryRecursive(dirPath, maxFiles = 500) {
+  const results = [];
+  function walk(dir) {
+    if (results.length >= maxFiles) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (results.length >= maxFiles) return;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(fullPath);
+      else if (entry.isFile() && supportedExtensions.has(path.extname(entry.name).toLowerCase())) {
+        results.push(fullPath);
+      }
+    }
+  }
+  walk(dirPath);
+  return results;
 }
 
 function splitOversizedText(text, limit) {
@@ -765,7 +787,20 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       debugLog(documentId, 'prepare:copied-source', { source_path: sourcePath });
 
       updateDocument(documentId, { status: 'converting', progress: 15, message: '正在转换为 Markdown' }, webContents);
-      const markdown = stripMarkdownFence((await parseDocumentWithConfig(app, sourcePath, config, { assetScope: `knowledge-${documentId}`, preserveImages: false })).trim());
+      let markdown;
+      const isImageFile = IMAGE_EXTENSIONS_SET.has(path.extname(sourcePath).toLowerCase());
+      try {
+        markdown = stripMarkdownFence((await parseDocumentWithConfig(app, sourcePath, config, { assetScope: `knowledge-${documentId}`, preserveImages: false })).trim());
+      } catch (parseErr) {
+        if (isImageFile && aiService?.analyzeImageWithVision) {
+          updateDocument(documentId, { status: 'converting', progress: 15, message: '正在使用 AI Vision 识别图片内容' }, webContents);
+          const visionText = await aiService.analyzeImageWithVision(sourcePath, path.basename(sourcePath));
+          markdown = String(visionText || '').trim();
+          debugLog(documentId, 'prepare:vision-fallback', { chars: markdown.length });
+        } else {
+          throw parseErr;
+        }
+      }
       if (!markdown) throw new Error('文档未解析出有效 Markdown 内容');
       await fsp.writeFile(markdownPath, `${markdown}\n`, 'utf-8');
       knowledgeBaseStore.updateMarkdownMetadata(documentId, markdown);
@@ -1163,6 +1198,96 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       }
 
       return { success: Boolean(created.length), message: created.length ? `已加入 ${created.length} 个文档处理任务` : '未选择支持的文档类型', documents: created };
+    },
+
+    async previewDirectoryScan(folderId) {
+      const result = await dialog.showOpenDialog({
+        title: '选择要批量导入的目录',
+        properties: ['openDirectory'],
+      });
+      if (result.canceled || !result.filePaths.length) return { canceled: true };
+      const dirPath = result.filePaths[0];
+      const allFiles = scanDirectoryRecursive(dirPath);
+      const { documents } = knowledgeBaseStore.list();
+      const folderDocNames = new Set(documents.filter((d) => d.folder_id === folderId).map((d) => d.file_name));
+      const files = allFiles.map((filePath) => ({
+        filePath,
+        fileName: path.basename(filePath),
+        ext: path.extname(filePath).toLowerCase().replace('.', ''),
+        isDuplicate: folderDocNames.has(path.basename(filePath)),
+      }));
+      return {
+        canceled: false,
+        dirPath,
+        files,
+        totalCount: files.length,
+        duplicateCount: files.filter((f) => f.isDuplicate).length,
+      };
+    },
+
+    async importFromDirectory(folderId, filePaths, webContents) {
+      const currentIndex = knowledgeBaseStore.list();
+      const folder = currentIndex.folders.find((item) => item.id === folderId);
+      if (!folder) throw new Error('请先选择知识库文件夹');
+
+      const CONCURRENCY = 3;
+      const queue = [...filePaths];
+      let activeCount = 0;
+      let successCount = 0;
+      let failedCount = 0;
+      const created = [];
+
+      const processFile = async (filePath) => {
+        const ext = path.extname(filePath).toLowerCase();
+        if (!supportedExtensions.has(ext)) return;
+        const fileName = path.basename(filePath);
+        const documentId = createId('doc');
+        const documentDir = path.join('folders', folderId, 'documents', documentId).replace(/\\/g, '/');
+        const doc = {
+          id: documentId,
+          folder_id: folderId,
+          file_name: fileName,
+          document_dir: documentDir,
+          source_path: path.join(documentDir, `source${ext}`).replace(/\\/g, '/'),
+          markdown_path: path.join(documentDir, 'content.md').replace(/\\/g, '/'),
+          status: 'pending',
+          progress: 0,
+          message: '等待处理',
+          item_count: 0,
+          block_count: 0,
+          filtered_block_count: 0,
+          candidate_item_count: 0,
+          discarded_block_count: 0,
+          system_discarded_after_retry_count: 0,
+          created_at: now(),
+          updated_at: now(),
+        };
+        const savedDoc = knowledgeBaseStore.createDocument(doc);
+        created.push(savedDoc);
+        emitProgress(webContents, savedDoc);
+        await prepareDocument(documentId, filePath, webContents);
+      };
+
+      await new Promise((resolve) => {
+        function next() {
+          while (activeCount < CONCURRENCY && queue.length > 0) {
+            const fp = queue.shift();
+            activeCount++;
+            processFile(fp)
+              .then(() => { successCount++; })
+              .catch(() => { failedCount++; })
+              .finally(() => {
+                activeCount--;
+                next();
+                if (activeCount === 0 && queue.length === 0) resolve();
+              });
+          }
+          if (activeCount === 0 && queue.length === 0) resolve();
+        }
+        next();
+      });
+
+      return { success: successCount, failed: failedCount, total: filePaths.length, documents: created };
     },
 
     startMatching(documentId, batchSize, webContents) {
