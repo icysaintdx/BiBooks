@@ -269,4 +269,5 @@ export interface TechnicalPlanState {
   industryCode?: string;
   industryName?: string;
   industryConfidence?: number;
+  industryChapterStructure?: string[];
 }

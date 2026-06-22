@@ -55,6 +55,21 @@ function getMissingRequiredBidAnalysisLabels(storedPlan) {
     .map((task) => task.label);
 }
 
+// 读取“投标文件组成与格式”解析项内容（招标格式优先的依据来源）
+function getBidFileStructureContent(storedPlan) {
+  const state = storedPlan?.bidAnalysisTasks?.bidFileStructure;
+  if (!state || state.status !== 'success') return '';
+  const content = String(state.content || '').trim();
+  // 若解析结果为“原文未提及”，视为招标文件未规定组成
+  if (!content || /原文未提及|没有提及|未提及投标文件组成/.test(content)) return '';
+  return content;
+}
+
+// 判断招标文件是否明确规定了投标文件组成/格式（决定是否走招标格式优先骨架）
+function hasTenderFileStructure(storedPlan) {
+  return Boolean(getBidFileStructureContent(storedPlan));
+}
+
 function formatKnowledgeAdditionParents(parents) {
   return (parents || []).map((item) => [
     `- ${item.id} ${item.title || '未命名二级目录'}（所属一级：${item.parentTitle || '未命名一级目录'}）`,
@@ -173,6 +188,43 @@ function generateTopLevelOutlineMessages({ overview, requirements, suggestions, 
     ...(industryContext ? [{ role: 'user', content: `行业参考信息：\n${industryContext}` }] : []),
     ...(templateContext ? [{ role: 'user', content: `模板参考：\n${templateContext}` }] : []),
     { role: 'user', content: `请仅生成一级目录列表，不要生成二级和三级目录。返回的 JSON 仍然使用 outline 字段，每个一级目录都必须包含 id、title、description。${formatSuggestions(suggestions)}` },
+  ];
+}
+
+// 招标格式优先：根据“投标文件组成与格式”生成技术标一级目录骨架
+function tenderStructureTopLevelSystemPrompt() {
+  return `你是一个专业的标书编写专家。招标文件已经明确规定了投标文件的组成与格式，请严格依据招标文件给定的“投标文件组成/投标文件格式”，生成投标文件中【技术标/技术部分】的一级目录结构。
+
+要求：
+1. 一级目录必须严格来源于招标文件规定的投标文件组成条目，保持招标文件给定的名称与先后顺序，禁止自行增删、改写或合并条目。
+2. 只生成属于技术标/技术部分的一级目录；商务部分、报价/价格部分、纯资格证明类条目不在本次范围内，请跳过。
+3. 如果招标文件的组成条目本身就是技术标的章节，则直接作为一级目录；如果某条目下还细分了技术内容，只取其作为一级目录标题。
+4. 只生成一级目录，不要生成二级和三级目录。
+5. 返回标准 JSON 格式，使用 outline 字段，每个一级目录必须包含 id、title、description。
+6. ${buildNoFabricationInstruction()}
+7. 除了 JSON 结果外，不要输出任何其他内容。
+
+${buildEvidenceBoundaryInstruction()}
+
+JSON 格式要求：
+{
+  "outline": [
+    {
+      "id": "1",
+      "title": "",
+      "description": ""
+    }
+  ]
+}`;
+}
+
+function generateTenderStructureTopLevelMessages({ overview, requirements, bidFileStructure, suggestions }) {
+  return [
+    { role: 'system', content: tenderStructureTopLevelSystemPrompt() },
+    { role: 'user', content: `招标文件规定的投标文件组成与格式（最高优先级，必须严格遵循）：\n${bidFileStructure}` },
+    ...(overview ? [{ role: 'user', content: `项目概述（辅助信息）：\n${overview}` }] : []),
+    ...(requirements ? [{ role: 'user', content: `技术评分要求（辅助信息，用于补全 description）：\n${requirements}` }] : []),
+    { role: 'user', content: `请仅依据上述投标文件组成生成技术标一级目录列表，保持条目名称与顺序与招标文件一致。返回的 JSON 使用 outline 字段，每个一级目录都必须包含 id、title、description。${formatSuggestions(suggestions)}` },
   ];
 }
 
@@ -817,6 +869,38 @@ async function generateFallback(aiService, payload, suggestions, log, progressRa
   return outline;
 }
 
+// 招标格式优先：以招标文件规定的投标文件组成为一级目录骨架，再补全二三级目录
+async function generateTenderStructureTopLevel(aiService, payload, suggestions, log) {
+  return collectJson(aiService, {
+    messages: generateTenderStructureTopLevelMessages({ ...payload, suggestions }),
+    temperature: 0.4,
+    normalizer: (value) => normalizeOutlineResponse(value, new Set()),
+    validator: validateTopLevelOutline,
+    progressCallback: (message) => log(message, 25),
+    progressLabel: '招标格式一级目录',
+    failureMessage: '模型返回的招标格式目录数据格式无效',
+  });
+}
+
+async function tenderStructureWorkflow(aiService, payload, log) {
+  log('检测到招标文件已规定投标文件组成，按招标格式优先生成一级目录骨架。', 10);
+  const top = await generateTenderStructureTopLevel(aiService, payload, undefined, log);
+  log('一级目录骨架生成完成，正在按骨架补全二三级目录。', 30);
+  const assembled = [];
+  const progressRange = { start: 30, end: 90 };
+  for (const [index, item] of top.outline.entries()) {
+    const progress = progressRange.start + Math.round((index / Math.max(top.outline.length, 1)) * (progressRange.end - progressRange.start));
+    log(`正在生成第 ${index + 1}/${top.outline.length} 个一级目录的二三级目录：${item.title || '未命名章节'}。`, progress);
+    const childrenResponse = await generateChildren(aiService, payload, item, undefined, log, progress);
+    const children = childrenResponse.children || [];
+    assembled.push({ id: item.id, title: item.title, description: item.description, ...(children.length ? { children } : {}) });
+  }
+  log('招标格式目录生成完成，正在整理目录编号。', progressRange.end);
+  const outline = normalizeOutlineResponse({ outline: renumber(assembled) }, new Set());
+  validateCompleteOutline(outline);
+  return outline;
+}
+
 async function generateByMode(aiService, payload, mode, suggestions, log, progressOptions = {}) {
   const fullProgress = progressOptions.fullProgress ?? 20;
   const fallbackRange = progressOptions.fallbackRange || { start: 30, end: 75 };
@@ -1072,9 +1156,23 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
     requirements,
     industryContext,
     templateContext,
+    bidFileStructure: getBidFileStructureContent(storedPlan),
+    tenderMarkdown: typeof workspaceStore.readTenderMarkdown === 'function' ? workspaceStore.readTenderMarkdown() : '',
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
   };
-  let outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
+  // 招标格式优先：招标文件明确规定了投标文件组成/格式时，以其作为一级目录骨架；
+  // 否则（或骨架生成异常）回退到现有的评分对齐/自由生成工作流。
+  let outline;
+  if (hasTenderFileStructure(storedPlan)) {
+    try {
+      outline = await tenderStructureWorkflow(aiService, taskPayload, log);
+    } catch (error) {
+      log(`招标格式优先目录生成失败（${error.message || '未知错误'}），已回退到${taskPayload.mode === 'aligned' ? '评分对齐' : '自由'}生成模式。`);
+      outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
+    }
+  } else {
+    outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
+  }
   const knowledgeItems = loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
   outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
   technicalPlan = workspaceStore.updateTechnicalPlan({

@@ -1,5 +1,50 @@
 # 更新日志
 
+## [v0.13.0] - 2026-06-22 16:30
+**版本代号**: 统一编排骨架版
+**文档总数**: 14
+
+### 🆕 新增功能
+#### 统一编排骨架（目录驱动 3 块）⭐
+- **功能**: 以目录生成为分水岭，在技术方案页内渲染"技术正文 / 商务标 / 报价"三块编排区，渐进叠加且保留原单线 step 流程
+- **位置**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx`（BidOrchestrationBand）
+- **文档**: [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)
+- **文件**: `client/src/features/technical-plan/pages/TechnicalPlanHome.tsx` `client/src/styles.css`
+
+#### 大纲招标格式优先路由 ⭐
+- **功能**: 大纲生成新增"招标格式优先"路由，招标文件规定投标文件组成 / 格式时以其为一级骨架，未规定回退评分对齐 / 自由生成，异常强制回退
+- **位置**: `client/electron/services/outlineGenerationTask.cjs`（tenderStructureWorkflow + 格式优先路由）
+- **文档**: [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)
+- **文件**: `client/electron/services/outlineGenerationTask.cjs` `client/electron/services/bidAnalysisTask.cjs` `client/src/features/technical-plan/services/bidAnalysisWorkflow.ts`
+
+#### 商务标 / 报价招标解析联动 ⭐
+- **功能**: 商务标 / 报价接入当前项目，表单初值遵循"招标解析优先"（缺失回退硬编码默认），商务标持久化 / 还原表单，两块持久化 bid_project_id
+- **位置**: `client/src/shared/utils/tenderLinkage.ts`
+- **文档**: [统一编排骨架与状态持久化修复已完成](docs/feature/统一编排骨架与状态持久化修复已完成.md)
+- **文件**: `client/src/app/AppRouter.tsx` `client/src/features/business-bid/pages/BusinessBidPage.tsx` `client/src/features/pricing/pages/PricingPage.tsx` `client/src/shared/utils/tenderLinkage.ts`
+
+### 🐛 Bug修复
+#### 技术方案步骤跨板块丢失 ⭐
+- **问题**: 技术方案走到 delivery-check 或更后，切到商务标 / 报价再切回，步数被重置回第 1 步
+- **原因**: 前端 `validSteps` 与后端 `isValidStep` 校验集合只列了前 6 步，漏 delivery-check / export-archive，导致持久化读取判非法返回 null、写入被拦截
+- **修复**: 前后端两处校验集合补齐至 8 步，与状态机一致
+- **文档**: [技术方案步骤跨板块丢失修复完成报告](docs/bugfix/技术方案步骤跨板块丢失修复完成报告.md)
+- **文件**: `client/src/features/technical-plan/services/technicalPlanStorage.ts` `client/electron/services/technicalPlanStore.cjs`
+
+#### industryCode 行业字段丢失 ⭐
+- **问题**: 招标分析写入的 industryCode / industryName 在持久化时被静默丢弃，大纲生成无法加载行业知识
+- **原因**: `applyPartial` 未处理 industryCode / industryName 字段
+- **修复**: `applyPartial` 写入 meta 表对应列，`loadTechnicalPlan` 回读
+- **文档**: [统一编排骨架与状态持久化修复已完成](docs/feature/统一编排骨架与状态持久化修复已完成.md)
+- **文件**: `client/electron/services/technicalPlanStore.cjs` `client/electron/services/sqliteDatabase.cjs`
+
+### 📚 文档更新
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md) ⭐
+- [统一编排骨架与状态持久化修复已完成](docs/feature/统一编排骨架与状态持久化修复已完成.md) ⭐
+- [技术方案步骤跨板块丢失修复完成报告](docs/bugfix/技术方案步骤跨板块丢失修复完成报告.md) ⭐
+
+---
+
 ## [v0.12.1] - 2026-06-06 16:00
 **版本代号**: 整体规划版
 **文档总数**: 6

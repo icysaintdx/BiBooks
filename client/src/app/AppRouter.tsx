@@ -66,9 +66,9 @@ function AppRouter({
         />
       );
     case 'business-bid':
-      return <BusinessBidPage />;
+      return <BusinessBidPage currentProject={projects.find((project) => project.id === currentProjectId) || null} />;
     case 'pricing':
-      return <PricingPage />;
+      return <PricingPage currentProject={projects.find((project) => project.id === currentProjectId) || null} />;
     case 'knowledge-base':
       return <KnowledgeBasePage />;
     case 'private-knowledge-base':

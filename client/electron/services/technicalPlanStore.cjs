@@ -81,7 +81,7 @@ function normalizeStatus(value, allowed, fallback) {
 }
 
 function isValidStep(value) {
-  return ['document-analysis', 'bid-analysis', 'outline-generation', 'global-facts', 'content-edit', 'expand'].includes(value);
+  return ['document-analysis', 'bid-analysis', 'outline-generation', 'global-facts', 'content-edit', 'expand', 'delivery-check', 'export-archive'].includes(value);
 }
 
 function normalizeGlobalFactId(value, index) {
@@ -639,6 +639,10 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     if (hasOwn(partial, 'contentGenerationOptions')) metaUpdates.content_generation_options_json = jsonOrNull(partial.contentGenerationOptions);
     if (hasOwn(partial, 'contentGenerationRuntime')) metaUpdates.content_generation_runtime_json = jsonOrNull(partial.contentGenerationRuntime);
     if (hasOwn(partial, 'scoringAnalysis')) metaUpdates.scoring_analysis_json = jsonOrNull(partial.scoringAnalysis);
+    if (hasOwn(partial, 'industryCode')) metaUpdates.industry_code = String(partial.industryCode || '');
+    if (hasOwn(partial, 'industryName')) metaUpdates.industry_name = String(partial.industryName || '');
+    if (hasOwn(partial, 'industryConfidence')) metaUpdates.industry_confidence = Number(partial.industryConfidence) || 0;
+    if (hasOwn(partial, 'industryChapterStructure')) metaUpdates.industry_chapter_structure_json = JSON.stringify(partial.industryChapterStructure || []);
 
     if (Object.keys(metaUpdates).length) updateMeta(metaUpdates);
 
@@ -705,6 +709,10 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       outlineData,
       scoringAnalysis: safeJsonParse(meta.scoring_analysis_json, undefined),
       tenderParseQuality: safeJsonParse(meta.tender_parse_quality_json, undefined),
+      industryCode: meta.industry_code || '',
+      industryName: meta.industry_name || '',
+      industryConfidence: Number(meta.industry_confidence || 0),
+      industryChapterStructure: safeJsonParse(meta.industry_chapter_structure_json, []),
     };
   }
 

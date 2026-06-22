@@ -430,6 +430,50 @@ function areRequiredBidAnalysisTasksReady(tasks: BidAnalysisTasks) {
   });
 }
 
+// 统一编排骨架（阶段一）：目录生成完成后作为分水岭，展示"技术正文 / 商务标 / 报价"三块。
+// 目录是三块共享的骨架；技术正文留在本页流程，商务标/报价跳转到对应板块。
+type OrchestrationBlockStatus = 'active' | 'ready' | 'todo';
+
+interface OrchestrationBlock {
+  id: string;
+  title: string;
+  description: string;
+  status: OrchestrationBlockStatus;
+  statusLabel: string;
+  actionLabel: string;
+  isCurrent: boolean;
+  onClick: () => void;
+}
+
+const orchestrationStatusLabel: Record<OrchestrationBlockStatus, string> = {
+  active: '进行中',
+  ready: '可开始',
+  todo: '待处理',
+};
+
+function BidOrchestrationBand({ blocks }: { blocks: OrchestrationBlock[] }) {
+  return (
+    <section className="module-panel bid-orchestration-band">
+      <div className="bid-orchestration-head">
+        <strong className="module-section-title">投标文件编排（以目录为骨架）</strong>
+        <span className="bid-orchestration-hint">目录已生成，可在技术正文、商务标、报价三块之间切换；三块共享同一目录骨架。</span>
+      </div>
+      <div className="bid-orchestration-grid">
+        {blocks.map((block) => (
+          <article key={block.id} className={`bid-orchestration-card is-${block.status}${block.isCurrent ? ' is-current' : ''}`}>
+            <div className="bid-orchestration-card-head">
+              <strong>{block.title}</strong>
+              <span className={`bid-orchestration-status is-${block.status}`}>{block.statusLabel}</span>
+            </div>
+            <p>{block.description}</p>
+            <button type="button" className="secondary-action module-action" onClick={block.onClick}>{block.actionLabel}</button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function clearOutlineContent(items: OutlineItem[]): OutlineItem[] {
   return items.map((item) => {
     const { content: _content, children, ...rest } = item;
@@ -1133,8 +1177,45 @@ function TechnicalPlanHome({ currentProject, onNavigateSection }: TechnicalPlanH
     },
   ];
 
+  const orchestrationVisible = Boolean(state.outlineData);
+  const technicalBlockStep: TechnicalPlanStep = globalFactsReady ? 'content-edit' : 'global-facts';
+  const isTechnicalBlockCurrent = ['global-facts', 'content-edit', 'expand', 'delivery-check', 'export-archive'].includes(state.step);
+  const orchestrationBlocks: OrchestrationBlock[] = [
+    {
+      id: 'technical',
+      title: '技术正文',
+      description: '基于目录骨架生成技术方案正文、全局事实与扩写改写。',
+      status: isTechnicalBlockCurrent ? 'active' : 'ready',
+      statusLabel: isTechnicalBlockCurrent ? orchestrationStatusLabel.active : orchestrationStatusLabel.ready,
+      actionLabel: isTechnicalBlockCurrent ? '继续技术正文' : '进入技术正文',
+      isCurrent: isTechnicalBlockCurrent,
+      onClick: () => switchStep(technicalBlockStep),
+    },
+    {
+      id: 'business',
+      title: '商务标',
+      description: '生成商务材料草稿，资质、业绩、报价说明等结构化中间层。',
+      status: 'todo',
+      statusLabel: orchestrationStatusLabel.todo,
+      actionLabel: '前往商务标',
+      isCurrent: false,
+      onClick: () => onNavigateSection?.('business-bid'),
+    },
+    {
+      id: 'pricing',
+      title: '报价',
+      description: '在本地维护报价明细与税费核算，供商务标与最终合成引用。',
+      status: 'todo',
+      statusLabel: orchestrationStatusLabel.todo,
+      actionLabel: '前往报价',
+      isCurrent: false,
+      onClick: () => onNavigateSection?.('pricing'),
+    },
+  ];
+
   return (
     <div className="page-stack technical-workbench">
+      {orchestrationVisible && <BidOrchestrationBand blocks={orchestrationBlocks} />}
       {state.step === 'document-analysis' && (
         <DocumentAnalysisPage
           tenderFile={state.tenderFile}

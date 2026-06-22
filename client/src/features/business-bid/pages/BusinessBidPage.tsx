@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '../../../shared/ui';
-import type { RepairTaskInput } from '../../../shared/types/ipc';
+import type { BidProjectSummary, RepairTaskInput } from '../../../shared/types/ipc';
 import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
+import { buildCommercialTenderSeed, loadTenderPlanState } from '../../../shared/utils/tenderLinkage';
 
 type BidStep = 'setup' | 'sections' | 'result';
 
@@ -162,7 +163,11 @@ function buildCommercialBidRepairTasks({
   return tasks;
 }
 
-function BusinessBidPage() {
+interface BusinessBidPageProps {
+  currentProject: BidProjectSummary | null;
+}
+
+function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
   const { showToast } = useToast();
   const [step, setStep] = useState<BidStep>('setup');
   const [projectName, setProjectName] = useState('');
@@ -173,6 +178,9 @@ function BusinessBidPage() {
   const [result, setResult] = useState<CommercialBidResult | null>(null);
   const [report, setReport] = useState('');
   const [savedBids, setSavedBids] = useState<any[]>([]);
+  // 招标解析参考（资格性审查 / 商务评分原文），用于材料配置阶段提示
+  const [tenderQualification, setTenderQualification] = useState('');
+  const [tenderBusinessScoring, setTenderBusinessScoring] = useState('');
 
   const [priceItems, setPriceItems] = useState<PriceItem[]>([]);
   const [totalAmount, setTotalAmount] = useState(0);
@@ -190,14 +198,21 @@ function BusinessBidPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [templatesData, qualData, listData, projectState] = await Promise.all([
+        const [templatesData, qualData, listData, tenderState] = await Promise.all([
           window.yibiao?.commercialBid.getPriceTemplates(),
           window.yibiao?.commercialBid.getQualificationTypes(),
           window.yibiao?.commercialBid.list(),
-          window.yibiao?.projectWorkspace.list(),
+          loadTenderPlanState(),
         ]);
-        const currentProject = (projectState?.projects || []).find((project) => project.id === projectState?.currentProjectId);
-        if (currentProject?.name) setProjectName((value) => value || currentProject.name);
+        // 项目名优先用当前项目 prop，缺失再回退招标解析的项目信息
+        const tenderSeed = buildCommercialTenderSeed(tenderState);
+        const seededProjectName = currentProject?.name || tenderSeed.projectName;
+        if (seededProjectName) setProjectName((value) => value || seededProjectName);
+        // 质保期 / 响应时间：招标文件有值则覆盖硬编码默认（仅当用户尚未改动默认值时）
+        if (tenderSeed.warrantyPeriod) setWarrantyPeriod((value) => (value === '1年' ? tenderSeed.warrantyPeriod : value));
+        if (tenderSeed.responseTime) setResponseTime((value) => (value === '24小时' ? tenderSeed.responseTime : value));
+        setTenderQualification(tenderSeed.qualificationReview);
+        setTenderBusinessScoring(tenderSeed.businessScoring);
         if (templatesData) setPriceTemplates(templatesData as Record<string, PriceTemplate>);
         if (qualData) {
           setQualifications((qualData as QualType[]).map((item) => ({
@@ -214,7 +229,7 @@ function BusinessBidPage() {
       }
     };
     void load();
-  }, [showToast]);
+  }, [currentProject, showToast]);
 
   const handleGenerate = useCallback(async () => {
     if (!projectName.trim() || !companyName.trim()) {
@@ -236,12 +251,24 @@ function BusinessBidPage() {
 
       const rpt = await window.yibiao?.commercialBid.generateReport(bid);
       const id = `bid_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      // 持久化表单配置，避免重新加载草稿时表单数据丢失（此前 sections:[] 会丢弃表单）
+      const formSnapshot = {
+        priceType,
+        totalAmount,
+        priceItems,
+        qualifications,
+        projects,
+        warrantyPeriod,
+        responseTime,
+        financialData,
+      };
       const saved = await window.yibiao?.commercialBid.save({
         id,
+        bidProjectId: currentProject?.id || '',
         projectName,
         companyName,
         priceType,
-        sections: [],
+        sections: [{ id: 'form', form: formSnapshot }],
         result: bid,
         report: rpt || '',
         createdAt: new Date().toISOString(),
@@ -270,7 +297,7 @@ function BusinessBidPage() {
     } finally {
       setLoading(false);
     }
-  }, [companyName, financialData, priceItems, priceType, projectName, projects, qualifications, responseTime, showToast, totalAmount, warrantyPeriod]);
+  }, [companyName, currentProject, financialData, priceItems, priceType, projectName, projects, qualifications, responseTime, showToast, totalAmount, warrantyPeriod]);
 
   const handleCopyReport = useCallback(() => {
     navigator.clipboard.writeText(report)
@@ -312,6 +339,17 @@ function BusinessBidPage() {
                       setProjectName(item.projectName || '');
                       setCompanyName(item.companyName || '');
                       setPriceType(item.priceType || 'lumpSum');
+                      // 还原已保存的表单配置
+                      const form = Array.isArray(item.sections) ? item.sections.find((section: any) => section?.id === 'form')?.form : null;
+                      if (form) {
+                        setTotalAmount(Number(form.totalAmount) || 0);
+                        setPriceItems(Array.isArray(form.priceItems) ? form.priceItems : []);
+                        if (Array.isArray(form.qualifications)) setQualifications(form.qualifications);
+                        setProjects(Array.isArray(form.projects) ? form.projects : []);
+                        if (form.warrantyPeriod) setWarrantyPeriod(form.warrantyPeriod);
+                        if (form.responseTime) setResponseTime(form.responseTime);
+                        if (form.financialData) setFinancialData(form.financialData);
+                      }
                       if (item.result) {
                         setResult(item.result);
                         setReport(item.report || '');
@@ -379,6 +417,23 @@ function BusinessBidPage() {
 
           {step === 'sections' && (
             <section className="module-stack">
+              {(tenderQualification || tenderBusinessScoring) && (
+                <details className="module-panel business-tender-reference">
+                  <summary className="module-section-title">招标文件要求参考（资格性审查 / 商务评分）</summary>
+                  {tenderQualification && (
+                    <div className="business-tender-reference-block">
+                      <strong>资格性审查</strong>
+                      <pre className="module-previewer">{tenderQualification}</pre>
+                    </div>
+                  )}
+                  {tenderBusinessScoring && (
+                    <div className="business-tender-reference-block">
+                      <strong>商务评分要求</strong>
+                      <pre className="module-previewer">{tenderBusinessScoring}</pre>
+                    </div>
+                  )}
+                </details>
+              )}
               <Panel title="投标报价说明">
                 <div className="module-form-row">
                   <Field label="总金额（元）"><input type="number" value={totalAmount} onChange={(event) => setTotalAmount(Number(event.target.value))} /></Field>

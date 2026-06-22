@@ -1351,6 +1351,26 @@ button {
   margin-top: 10px;
 }
 
+/* 招标解析联动参考块（商务标 / 报价共用风格） */
+.business-tender-reference,
+.pricing-tender-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.business-tender-reference > summary,
+.pricing-tender-reference > summary {
+  cursor: pointer;
+}
+
+.business-tender-reference-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
 .business-price-row,
 .business-qualification-row,
 .business-performance-row {
@@ -2268,6 +2288,91 @@ button {
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+/* 统一编排骨架（目录驱动三块） */
+.bid-orchestration-band {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bid-orchestration-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bid-orchestration-hint {
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bid-orchestration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bid-orchestration-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.bid-orchestration-card.is-current {
+  border-color: rgba(33, 116, 253, 0.55);
+  box-shadow: 0 12px 28px rgba(33, 116, 253, 0.1);
+}
+
+.bid-orchestration-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bid-orchestration-card p {
+  margin: 0;
+  color: var(--yb-text-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bid-orchestration-status {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.bid-orchestration-status.is-active {
+  color: #1452d4;
+  background: rgba(33, 116, 253, 0.12);
+}
+
+.bid-orchestration-status.is-ready {
+  color: #0f8a4f;
+  background: rgba(22, 163, 95, 0.12);
+}
+
+.bid-orchestration-status.is-todo {
+  color: var(--yb-text-soft);
+  background: rgba(120, 128, 140, 0.12);
+}
+
+@media (max-width: 1080px) {
+  .bid-orchestration-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .plan-step-body {

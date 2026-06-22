@@ -98,6 +98,20 @@ const tasks = [
   { id: 'discardedBids', label: '无效标与废标项', required: false, output: 'markdown', description: '投标无效、废标相关风险项。', prompt: buildInvalidBidAndRejectionItemsPrompt },
   { id: 'signingProcess', label: '合同授予与签订', required: false, output: 'json', description: '中标公示、合同签订、履约保证金和合同文本。', prompt: () => jsonTask('提取合同授予和签订流程', '提取中标公示、合同签订、履约保证金、合同文本等信息。', `{"bid_notice":"中标公示","contract_sign":"合同签订","performance_bond":"履约保证金","contract_text":"合同文本"}`) },
   { id: 'terminationCondition', label: '合同解除和终止', required: false, output: 'json', description: '违约解除、不可抗力、合同终止和争议解决。', prompt: () => jsonTask('提取合同解除和终止条件', '提取违约解除、不可抗力、合同终止、争议解决等信息。', `{"breach_termination":"违约解除","force_majeure":"不可抗力","contract_termination":"合同终止","dispute_resolution":"争议解决"}`) },
+  {
+    id: 'bidFileStructure', label: '投标文件组成与格式', required: false, output: 'markdown',
+    description: '提取招标文件规定的投标文件组成清单、编制顺序和格式要求，作为大纲骨架的依据。',
+    prompt: () => `任务：提取招标文件中关于“投标文件组成”“投标文件格式”“投标文件编制”的规定。
+
+重点识别“投标文件组成”“投标文件的组成”“投标文件应包括”“投标文件格式”“投标文件编制”“投标文件应按...格式编写”等章节，提取投标人需要编制的投标文件由哪些部分（章节/卷册/分册）构成，以及它们的先后顺序和格式要求。
+
+工作要求：
+1. 严格基于原文，按招标文件给定的顺序逐条列出投标文件的组成部分，保留原文条目名称。
+2. 如果原文明确要求“按第X章格式编写”或引用了格式范本，请一并注明对应的格式来源（如“第六章 投标文件格式”）。
+3. 区分“技术部分/技术标”“商务部分/商务标”“报价部分/价格标”等大类（若原文有此划分）。
+4. 如果原文未规定投标文件组成或格式，写“原文未提及投标文件组成与格式”。
+5. 使用 Markdown 有序列表，不要使用表格。仅输出整理结果。`,
+  },
 ];
 
 function getBidAnalysisTasks(mode) {

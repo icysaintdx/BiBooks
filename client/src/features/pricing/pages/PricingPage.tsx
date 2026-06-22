@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../shared/ui';
-import type { RepairTaskInput } from '../../../shared/types/ipc';
+import type { BidProjectSummary, RepairTaskInput } from '../../../shared/types/ipc';
 import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
+import { buildPricingTenderSeed, loadTenderPlanState } from '../../../shared/utils/tenderLinkage';
 
 interface PricingItem {
   id: string;
@@ -176,11 +177,16 @@ function buildPricingRepairTasks(sheet: PricingSheet): RepairTaskInput[] {
   return tasks;
 }
 
-function PricingPage() {
+interface PricingPageProps {
+  currentProject: BidProjectSummary | null;
+}
+
+function PricingPage({ currentProject }: PricingPageProps) {
   const { showToast } = useToast();
   const [sheets, setSheets] = useState<PricingSheetRecord[]>([]);
   const [currentId, setCurrentId] = useState('');
   const [currentProjectName, setCurrentProjectName] = useState('');
+  const [tenderPricingNote, setTenderPricingNote] = useState('');
   const [sheet, setSheet] = useState<PricingSheet>(emptySheet());
   const [editingItem, setEditingItem] = useState<PricingItem | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -200,13 +206,15 @@ function PricingPage() {
   const loadSheets = useCallback(async () => {
     setLoading(true);
     try {
-      const [records, projectState] = await Promise.all([
+      const [records, tenderState] = await Promise.all([
         window.yibiao?.pricing?.list(),
-        window.yibiao?.projectWorkspace?.list(),
+        loadTenderPlanState(),
       ]);
-      const currentProject = (projectState?.projects || []).find((project) => project.id === projectState?.currentProjectId);
-      const fallbackName = currentProject?.name || '';
+      // 项目名优先用当前项目 prop，缺失再回退招标解析的项目信息
+      const tenderSeed = buildPricingTenderSeed(tenderState);
+      const fallbackName = currentProject?.name || tenderSeed.projectName || '';
       setCurrentProjectName(fallbackName);
+      setTenderPricingNote(tenderSeed.pricingNote);
 
       const normalized = Array.isArray(records) ? records.map((record) => normalizeRecord(record as Partial<PricingSheetRecord>)) : [];
       setSheets(normalized);
@@ -214,7 +222,7 @@ function PricingPage() {
       setCurrentId(first.id);
       setSheet({
         id: first.id,
-        bidProjectId: first.bidProjectId || '',
+        bidProjectId: first.bidProjectId || currentProject?.id || '',
         projectName: first.projectName || fallbackName,
         taxRate: first.taxRate,
         discountRate: first.discountRate,
@@ -228,7 +236,7 @@ function PricingPage() {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [currentProject, showToast]);
 
   useEffect(() => {
     void loadSheets();
@@ -250,12 +258,12 @@ function PricingPage() {
   }, [sheets]);
 
   const handleNewSheet = useCallback(() => {
-    const fresh = emptySheet(currentProjectName);
+    const fresh = { ...emptySheet(currentProjectName), bidProjectId: currentProject?.id || '' };
     setCurrentId(fresh.id);
     setSheet(fresh);
     setEditingItem(null);
     setShowAddDialog(false);
-  }, [currentProjectName]);
+  }, [currentProject, currentProjectName]);
 
   const handleSaveSheet = useCallback(async () => {
     try {
@@ -341,6 +349,13 @@ function PricingPage() {
           <button type="button" className="primary-action module-action" onClick={handleSaveSheet}>保存报价单</button>
         </div>
       </header>
+
+      {tenderPricingNote && (
+        <details className="module-panel pricing-tender-reference">
+          <summary className="module-section-title">招标文件报价口径参考</summary>
+          <pre className="module-previewer">{tenderPricingNote}</pre>
+        </details>
+      )}
 
       {loading ? (
         <div className="module-empty-state">正在加载报价单...</div>

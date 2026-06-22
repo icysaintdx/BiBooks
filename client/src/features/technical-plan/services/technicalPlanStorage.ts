@@ -7,6 +7,8 @@ const validSteps: TechnicalPlanStep[] = [
   'global-facts',
   'content-edit',
   'expand',
+  'delivery-check',
+  'export-archive',
 ];
 
 function isTechnicalPlanState(state: TechnicalPlanState | null): state is TechnicalPlanState {

@@ -884,6 +884,10 @@ function ensureRuntimeSchemaCompatibility(db) {
   ensureColumn(db, 'pricing_sheets', 'updated_at', "updated_at TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'commercial_bids', 'bid_project_id', "bid_project_id TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, 'bid_opportunities', 'bid_project_id', "bid_project_id TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'technical_plan_meta', 'industry_code', "industry_code TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'technical_plan_meta', 'industry_name', "industry_name TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, 'technical_plan_meta', 'industry_confidence', 'industry_confidence REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'technical_plan_meta', 'industry_chapter_structure_json', "industry_chapter_structure_json TEXT NOT NULL DEFAULT '[]'");
   db.prepare("UPDATE pricing_sheets SET created_at = COALESCE(NULLIF(created_at, ''), datetime('now')) WHERE created_at = ''").run();
   db.prepare("UPDATE pricing_sheets SET updated_at = COALESCE(NULLIF(updated_at, ''), datetime('now')) WHERE updated_at = ''").run();
   db.exec(`
