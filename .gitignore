@@ -9,3 +9,5 @@ release/
 .DS_Store
 Thumbs.db
 client/electron/services/*.bak
+BiBooks-test-artifacts/
+client/-

@@ -5,10 +5,9 @@ import type { TechnicalPlanState, TechnicalPlanTenderFile, TenderParseQuality } 
 
 const parserLabels: Record<FileParserProvider, string> = {
   local: '本地解析',
-  'mineru-accurate-api': 'MinerU 精准解析 API',
-  'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
   opendataloader: 'OpenDataLoader PDF（本地）',
   'mineru-local': 'MinerU 本地解析',
+  'paddleocr-local': 'PaddleOCR 本地 OCR',
   auto: '智能路由',
 };
 

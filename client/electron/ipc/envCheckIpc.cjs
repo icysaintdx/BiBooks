@@ -23,18 +23,24 @@ function registerEnvCheckIpc(mainWindow) {
         opendataloader_pdf: false,
         mineru: false,
         pdfplumber: false,
+        paddleocr: false,
+        pdf2image: false,
       },
     };
 
     if (pythonCmd) {
-      const [odl, mineruOk, pdfplumber] = await Promise.all([
+      const [odl, mineruOk, pdfplumber, paddleocr, pdf2image] = await Promise.all([
         checkPythonPackage(pythonCmd, 'opendataloader_pdf'),
         checkPythonPackage(pythonCmd, 'mineru'),
         checkPythonPackage(pythonCmd, 'pdfplumber'),
+        checkPythonPackage(pythonCmd, 'paddleocr'),
+        checkPythonPackage(pythonCmd, 'pdf2image'),
       ]);
       result.packages.opendataloader_pdf = odl;
       result.packages.mineru = mineruOk;
       result.packages.pdfplumber = pdfplumber;
+      result.packages.paddleocr = paddleocr;
+      result.packages.pdf2image = pdf2image;
     }
 
     return result;

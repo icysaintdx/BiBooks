@@ -384,12 +384,11 @@ function formatImageTestTime(value?: string) {
 }
 
 const fileParserProviders: Array<{ value: FileParserProvider; label: string }> = [
-  { value: 'auto', label: '智能路由【推荐】（PDF→OpenDataLoader，其他→MinerU本地）' },
+  { value: 'auto', label: '本地智能路由【推荐】（不上传文件）' },
   { value: 'local', label: '本地解析' },
   { value: 'opendataloader', label: 'OpenDataLoader PDF（本地增强）' },
   { value: 'mineru-local', label: 'MinerU 本地解析' },
-  { value: 'mineru-accurate-api', label: 'MinerU-精准解析 API' },
-  { value: 'mineru-agent-api', label: 'MinerU-Agent 轻量解析 API' },
+  { value: 'paddleocr-local', label: 'PaddleOCR 本地 OCR' },
 ];
 
 const parserOptions = [
@@ -397,14 +396,14 @@ const parserOptions = [
     title: '智能路由（推荐）',
     badge: '推荐默认',
     tone: 'primary',
-    summary: 'PDF 自动用 OpenDataLoader（基准第一），Word/PPT/图片自动用 MinerU 本地，其余回落本地解析。',
+    summary: '只使用本地能力，不上传招标文件。PDF 优先 OpenDataLoader，图片优先 PaddleOCR，其他优先本地解析或 MinerU 本地。',
     items: [
-      ['依赖', 'Java 11+ + Python + opendataloader-pdf + mineru'],
+      ['依赖', 'Java 11+ + Python + opendataloader-pdf，可选 PaddleOCR / MinerU'],
       ['解析速度', 'PDF极快，其他中等'],
       ['支持格式', 'pdf、docx、pptx、xlsx、png、jpg 等'],
       ['大小/页数', '无限制'],
       ['解析质量', '各格式最优'],
-      ['扫描件', 'PDF支持，其他需GPU'],
+      ['扫描件', '图片走 PaddleOCR，扫描 PDF 可走 OCR 兜底'],
     ],
   },
   {
@@ -450,31 +449,17 @@ const parserOptions = [
     ],
   },
   {
-    title: 'MinerU 精准解析 API',
-    badge: '扫描件兜底',
-    tone: 'muted',
-    summary: '解析质量高，适合本地解析失败或扫描件质量要求高的文档。',
+    title: 'PaddleOCR 本地 OCR',
+    badge: '证照/扫描件',
+    tone: 'accent',
+    summary: '中文 OCR 能力成熟，适合证照、资质图片、合同扫描页和图片型 PDF 的本地识别，不上传文件。',
     items: [
-      ['依赖', 'MinerU Token'],
-      ['解析速度', '慢'],
-      ['支持格式', 'pdf、jpeg、png、docx'],
-      ['大小/页数', '≤ 200MB / ≤ 200 页'],
-      ['解析质量', '高'],
-      ['扫描件', '支持'],
-    ],
-  },
-  {
-    title: 'MinerU-Agent 轻量解析 API',
-    badge: '轻量备用',
-    tone: 'muted',
-    summary: '无需 Token 但存在 IP 限频，适合轻量文档的备用解析。',
-    items: [
-      ['依赖', '无需（IP 限频）'],
+      ['依赖', 'Python + paddleocr，扫描 PDF 另需 pdf2image/Poppler'],
       ['解析速度', '中等'],
-      ['支持格式', 'pdf、jpeg、png、docx'],
-      ['大小/页数', '≤ 10MB / ≤ 20 页'],
-      ['解析质量', '中'],
-      ['扫描件', '质量差'],
+      ['支持格式', 'png、jpg、jpeg、bmp、tif、webp、pdf'],
+      ['大小/页数', '本机性能决定'],
+      ['解析质量', '中文证照/图片优秀'],
+      ['扫描件', '支持'],
     ],
   },
 ];
@@ -490,7 +475,7 @@ const initialState: SettingsPageState = {
   },
   imageModelProfiles: createDefaultImageModelProfiles(),
   fileParser: {
-    provider: 'local',
+    provider: 'auto',
     mineru_token: '',
   },
   layoutTemplate: defaultLayoutTemplate,
@@ -526,7 +511,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [envStatus, setEnvStatus] = useState<{
     python: { available: boolean; cmd: string | null };
     java: { available: boolean; version: number | null };
-    packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean };
+    packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean; paddleocr: boolean; pdf2image: boolean };
   } | null>(null);
   const [envChecking, setEnvChecking] = useState(false);
   const [envInstalling, setEnvInstalling] = useState(false);
@@ -1962,7 +1947,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>文件解析方式</strong>
-                <span>优先使用本地解析，复杂扫描件可尝试 MinerU 精准解析 API</span>
+                <span>招标文件按涉密处理，默认只使用本地解析和本地 OCR，不上传文件。</span>
               </div>
               <select
                 value={state.fileParser.provider}
@@ -1976,23 +1961,6 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                 ))}
               </select>
             </label>
-            {state.fileParser.provider === 'mineru-accurate-api' && (
-              <label className="settings-row">
-                <div className="settings-row-copy">
-                  <strong>MinerU Token</strong>
-                  <span>仅精准解析 API 需要 Token；轻量解析和本地解析无需填写</span>
-                </div>
-                <input
-                  type="password"
-                  value={state.fileParser.mineru_token || ''}
-                  placeholder="请输入 MinerU Token"
-                  onChange={(event) => setState((prev) => ({
-                    ...prev,
-                    fileParser: { ...prev.fileParser, mineru_token: event.target.value },
-                  }))}
-                />
-              </label>
-            )}
           </div>
 
           <div className="parser-compare">
@@ -2017,7 +1985,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             ))}
           </div>
           <div className="parser-note">
-            招标文件大多数是 Word 或 Word 导出的带文字层 PDF，本地解析可以适应 95% 以上的情况；如果解析失败，再尝试 MinerU 精准解析 API。
+            招标文件、资质证书和报价材料默认按涉密文件处理。本地智能路由不会上传文件；如需使用任何远程解析服务，后续必须单独启用并由人工确认。
           </div>
 
           <div className="settings-section-title" style={{ marginTop: 24 }}>
@@ -2055,13 +2023,19 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                   <span style={{ color: envStatus.packages.pdfplumber ? '#52c41a' : '#faad14' }}>
                     pdfplumber: {envStatus.packages.pdfplumber ? '✓ 已安装' : '✗ 未安装'}
                   </span>
+                  <span style={{ color: envStatus.packages.paddleocr ? '#52c41a' : '#faad14' }}>
+                    PaddleOCR: {envStatus.packages.paddleocr ? '✓ 已安装' : '✗ 未安装'}
+                  </span>
+                  <span style={{ color: envStatus.packages.pdf2image ? '#52c41a' : '#faad14' }}>
+                    pdf2image: {envStatus.packages.pdf2image ? '✓ 已安装' : '✗ 未安装'}
+                  </span>
                 </div>
               </div>
             )}
             <div className="settings-row">
               <div className="settings-row-copy">
                 <strong>一键安装依赖</strong>
-                <span>执行 pip install -r requirements.txt，安装 opendataloader-pdf 和 MinerU</span>
+                <span>执行 pip install -r requirements.txt，安装本地增强解析依赖；PaddleOCR 作为较重 OCR 依赖建议后续单独安装。</span>
               </div>
               <div className="settings-action-cell">
                 <button

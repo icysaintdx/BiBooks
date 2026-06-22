@@ -2,7 +2,6 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { dialog } = require('electron');
-const AdmZip = require('adm-zip');
 const { formatDocumentParseError, isLibreOfficeMissingError, normalizeDocumentParseError } = require('./documentParseErrors.cjs');
 const { compactLogError, createDeveloperLogger, textMetrics } = require('../utils/developerLog.cjs');
 const { getImportedImagesDir } = require('../utils/paths.cjs');
@@ -10,52 +9,42 @@ const { parseWithPython } = require('./pythonParserService.cjs');
 
 const parserLabels = {
   local: '本地解析',
-  'mineru-accurate-api': 'MinerU 精准解析 API',
-  'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
   'opendataloader': 'OpenDataLoader PDF（本地）',
   'mineru-local': 'MinerU 本地解析',
+  'paddleocr-local': 'PaddleOCR 本地识别',
   'auto': '智能路由（推荐）',
 };
 
-// auto 模式：PDF 用 opendataloader，其他用 mineru-local
+// auto 模式：默认只走本地能力；不会自动调用任何远程解析 API。
 const PDF_EXTS = new Set(['.pdf']);
-const MINERU_LOCAL_EXTS = new Set(['.docx', '.doc', '.ppt', '.pptx', '.xlsx', '.xls', '.png', '.jpg', '.jpeg']);
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp']);
+const MINERU_LOCAL_EXTS = new Set(['.ppt', '.pptx', '.xlsx', '.xls']);
+const DISABLED_REMOTE_PARSER_PROVIDERS = new Set(['mineru-accurate-api', 'mineru-agent-api']);
 
 function resolveAutoProvider(ext) {
   if (PDF_EXTS.has(ext)) return 'opendataloader';
+  if (IMAGE_EXTS.has(ext)) return 'paddleocr-local';
   if (MINERU_LOCAL_EXTS.has(ext)) return 'mineru-local';
   return 'local';
 }
 
 const localSupportedExtensions = new Set(['.txt', '.md', '.markdown', '.docx', '.pdf', '.doc', '.wps']);
-const mineruAgentSupportedExtensions = new Set([
-  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.jp2', '.webp', '.gif', '.bmp', '.xls', '.xlsx',
-]);
-const mineruAccurateSupportedExtensions = new Set([
-  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.jp2', '.webp', '.gif', '.bmp', '.html',
-]);
 const pythonLocalSupportedExtensions = new Set(['.pdf', '.docx', '.doc', '.ppt', '.pptx', '.png', '.jpg', '.jpeg']);
+const paddleOcrSupportedExtensions = new Set(['.pdf', '.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp']);
 const duplicateCheckSupportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
 const remoteImageTimeoutMs = 10000;
 const markdownImagePattern = /!\[(?<alt>[^\]]*)\]\((?<target><[^>]+>|[^)\s]+)(?<title>\s+"[^"]*")?\)/gi;
 const htmlImageSrcPattern = /(<img\b[^>]*?\bsrc=["'])(?<src>[^"']+)(["'][^>]*>)/gi;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function getSupportedExtensions(provider) {
-  if (provider === 'mineru-agent-api') {
-    return mineruAgentSupportedExtensions;
-  }
-  if (provider === 'mineru-accurate-api') {
-    return mineruAccurateSupportedExtensions;
-  }
   if (provider === 'opendataloader' || provider === 'mineru-local') {
     return pythonLocalSupportedExtensions;
   }
+  if (provider === 'paddleocr-local') {
+    return paddleOcrSupportedExtensions;
+  }
   if (provider === 'auto') {
-    return new Set([...PDF_EXTS, ...MINERU_LOCAL_EXTS, ...localSupportedExtensions]);
+    return new Set([...PDF_EXTS, ...IMAGE_EXTS, ...MINERU_LOCAL_EXTS, ...localSupportedExtensions]);
   }
   return localSupportedExtensions;
 }
@@ -70,6 +59,19 @@ function getSelectableExtensions(provider) {
 function resolveFileParser(config, filePath) {
   const requestedProvider = config.file_parser?.provider || 'local';
   const ext = path.extname(filePath).toLowerCase();
+
+  // 历史配置里如果残留远程 API，涉密安全模式下也强制转为本地解析。
+  if (DISABLED_REMOTE_PARSER_PROVIDERS.has(requestedProvider)) {
+    const actualProvider = IMAGE_EXTS.has(ext) ? 'paddleocr-local' : 'local';
+    return {
+      provider: actualProvider,
+      requestedProvider,
+      ext,
+      supported: getSupportedExtensions(actualProvider).has(ext),
+      fallbackToLocal: true,
+      remoteBlocked: true,
+    };
+  }
 
   // auto 模式：按扩展名分发到最佳解析器
   if (requestedProvider === 'auto') {
@@ -142,186 +144,6 @@ function formatImportError(error, filePath) {
     return '文件解析失败：该文件不是有效的 DOCX 文档，请用 Word/WPS 另存为标准 DOCX 后重试';
   }
   return `文件解析失败：${rawMessage || '未知错误'}`;
-}
-
-async function parseWithMineruAgent(filePath, options = {}) {
-  const fileName = path.basename(filePath);
-  const createResponse = await fetch('https://mineru.net/api/v1/agent/parse/file', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      file_name: fileName,
-      language: 'ch',
-      enable_table: true,
-      is_ocr: true,
-      enable_formula: true,
-    }),
-  });
-  const createResult = await createResponse.json();
-  if (!createResponse.ok || createResult.code !== 0) {
-    throw new Error(`申请 MinerU-Agent 上传链接失败：HTTP ${createResponse.status}，${JSON.stringify(createResult)}`);
-  }
-
-  const taskId = createResult.data?.task_id;
-  const fileUrl = createResult.data?.file_url;
-  if (!taskId || !fileUrl) {
-    throw new Error(`MinerU-Agent 响应缺少 task_id/file_url：${JSON.stringify(createResult)}`);
-  }
-
-  await uploadFile(fileUrl, filePath);
-  const finalResult = await pollMineruAgent(taskId, fileName);
-  const markdownUrl = finalResult.data.markdown_url;
-  if (!markdownUrl) {
-    throw new Error('MinerU-Agent 解析完成但未返回 markdown_url');
-  }
-  return downloadText(markdownUrl, '下载 MinerU-Agent Markdown 失败').then((markdown) => (
-    options.preserveImages
-      ? rewriteMarkdownImages(markdown, options.assets, { baseUrl: markdownUrl })
-      : stripMarkdownImages(markdown)
-  ));
-}
-
-async function pollMineruAgent(taskId, fileName) {
-  const startedAt = Date.now();
-  const timeoutMs = 300000;
-  const intervalMs = 3000;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await fetch(`https://mineru.net/api/v1/agent/parse/${taskId}`);
-    const result = await response.json();
-    if (!response.ok || result.code !== 0) {
-      throw new Error(`查询 MinerU-Agent 任务失败：HTTP ${response.status}，${JSON.stringify(result)}`);
-    }
-
-    const data = result.data || {};
-    if (data.state === 'done') {
-      return { raw: result, data };
-    }
-    if (data.state === 'failed') {
-      throw new Error(`MinerU-Agent 解析失败：${data.err_msg || '未知错误'}${data.err_code ? ` (${data.err_code})` : ''}`);
-    }
-    console.log(`WAIT ${fileName}: ${data.state || 'unknown'}`);
-    await sleep(intervalMs);
-  }
-
-  throw new Error(`MinerU-Agent 轮询超时，请稍后重试，task_id: ${taskId}`);
-}
-
-async function parseWithMineruAccurate(filePath, token, options = {}) {
-  if (!token) {
-    throw new Error('请先在设置中填写 MinerU Token');
-  }
-
-  const fileName = path.basename(filePath);
-  const createResponse = await fetch('https://mineru.net/api/v4/file-urls/batch', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      files: [{ name: fileName, data_id: makeDataId(fileName), is_ocr: true }],
-      model_version: 'vlm',
-      language: 'ch',
-      enable_table: true,
-      enable_formula: true,
-    }),
-  });
-  const createResult = await createResponse.json();
-  if (!createResponse.ok || createResult.code !== 0) {
-    throw new Error(`申请 MinerU 精准解析上传链接失败：HTTP ${createResponse.status}，${JSON.stringify(createResult)}`);
-  }
-
-  const batchId = createResult.data?.batch_id;
-  const fileUrl = createResult.data?.file_urls?.[0];
-  if (!batchId || !fileUrl) {
-    throw new Error(`MinerU 精准解析响应缺少 batch_id/file_url：${JSON.stringify(createResult)}`);
-  }
-
-  await uploadFile(fileUrl, filePath);
-  const finalResult = await pollMineruAccurate(token, batchId, fileName);
-  const fullZipUrl = finalResult.item.full_zip_url;
-  if (!fullZipUrl) {
-    throw new Error('MinerU 精准解析完成但未返回 full_zip_url');
-  }
-  const zipBuffer = await downloadBuffer(fullZipUrl);
-  return extractMarkdownFromZip(zipBuffer, options);
-}
-
-async function pollMineruAccurate(token, batchId, fileName) {
-  const startedAt = Date.now();
-  const timeoutMs = 600000;
-  const intervalMs = 5000;
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const response = await fetch(`https://mineru.net/api/v4/extract-results/batch/${batchId}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: '*/*' },
-    });
-    const result = await response.json();
-    if (!response.ok || result.code !== 0) {
-      throw new Error(`查询 MinerU 精准解析任务失败：HTTP ${response.status}，${JSON.stringify(result)}`);
-    }
-
-    const items = result.data?.extract_result || [];
-    const item = items.find((candidate) => candidate.file_name === fileName) || items[0];
-    if (item?.state === 'done') {
-      return { raw: result, item };
-    }
-    if (item?.state === 'failed') {
-      throw new Error(`MinerU 精准解析失败：${item.err_msg || '未知错误'}`);
-    }
-    console.log(`WAIT ${fileName}: ${item?.state || 'unknown'}`);
-    await sleep(intervalMs);
-  }
-
-  throw new Error(`MinerU 精准解析轮询超时，请稍后重试，batch_id: ${batchId}`);
-}
-
-async function uploadFile(fileUrl, filePath) {
-  const buffer = await fs.readFile(filePath);
-  const response = await fetch(fileUrl, { method: 'PUT', body: buffer });
-  if (!response.ok) {
-    throw new Error(`文件上传失败：HTTP ${response.status}，${await response.text()}`);
-  }
-}
-
-async function downloadText(url, fallbackMessage) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`${fallbackMessage}：HTTP ${response.status}`);
-  }
-  return response.text();
-}
-
-async function downloadBuffer(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`下载 MinerU 精准解析结果失败：HTTP ${response.status}`);
-  }
-  return Buffer.from(await response.arrayBuffer());
-}
-
-async function extractMarkdownFromZip(zipBuffer, options = {}) {
-  const zip = new AdmZip(zipBuffer);
-  const entries = zip.getEntries();
-  const fullMd = entries.find((entry) => /(^|[/\\])full\.md$/i.test(entry.entryName));
-  const anyMd = entries.find((entry) => entry.entryName.toLowerCase().endsWith('.md'));
-  const target = fullMd || anyMd;
-  if (!target) {
-    throw new Error('MinerU 精准解析结果 zip 中未找到 Markdown 文件');
-  }
-  const markdown = target.getData().toString('utf8');
-  if (!options.preserveImages) {
-    return stripMarkdownImages(markdown);
-  }
-  return rewriteMarkdownImages(markdown, options.assets, {
-    zipEntries: entries,
-    markdownEntryName: target.entryName,
-  });
-}
-
-function makeDataId(fileName) {
-  return fileName.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 96) || 'document';
 }
 
 async function createLocalFileSelection(filePath) {
@@ -553,12 +375,7 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
   const assets = preserveImages ? createAssetContext(app, options.assetScope || 'documents') : null;
   const parseOptions = { preserveImages, assets, imageResolver: createImageResolver(assets) };
   let markdown = '';
-  try {
-    if (provider === 'mineru-agent-api') {
-      markdown = await parseWithMineruAgent(filePath, parseOptions);
-    } else if (provider === 'mineru-accurate-api') {
-      markdown = await parseWithMineruAccurate(filePath, config.file_parser?.mineru_token || '', parseOptions);
-    } else if (provider === 'opendataloader' || provider === 'mineru-local') {
+  try {    if (provider === 'opendataloader' || provider === 'mineru-local' || provider === 'paddleocr-local') {
       markdown = await parseWithPython(provider, filePath);
     } else {
       markdown = await parseLocalDocument(filePath, parseOptions);

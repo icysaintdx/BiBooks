@@ -217,7 +217,7 @@ const defaultConfig = {
   },
   image_model_profiles: defaultImageModelProfiles,
   file_parser: {
-    provider: 'local',
+    provider: 'auto',
     mineru_token: '',
   },
   layout_template: defaultLayoutTemplate,
@@ -241,6 +241,11 @@ function isTextModelProvider(value) {
 
 function isImageModelProvider(value) {
   return imageModelProviders.includes(value);
+}
+
+function normalizeFileParserProvider(value) {
+  const localProviders = new Set(['local', 'opendataloader', 'mineru-local', 'paddleocr-local', 'auto']);
+  return localProviders.has(value) ? value : defaultConfig.file_parser.provider;
 }
 
 function normalizeTextModelProfile(provider, profile) {
@@ -446,7 +451,7 @@ function normalizeConfig(config) {
     image_model: activeImageProfile,
     image_model_profiles: imageModelProfiles,
     file_parser: {
-      provider: fileParser.provider || defaultConfig.file_parser.provider,
+      provider: normalizeFileParserProvider(fileParser.provider),
       mineru_token: fileParser.mineru_token || defaultConfig.file_parser.mineru_token,
     },
     layout_template: activeLayoutTemplate,

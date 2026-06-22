@@ -530,7 +530,7 @@ export interface YibiaoBridge {
     check: () => Promise<{
       python: { available: boolean; cmd: string | null };
       java: { available: boolean; version: number | null };
-      packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean };
+      packages: { opendataloader_pdf: boolean; mineru: boolean; pdfplumber: boolean; paddleocr: boolean; pdf2image: boolean };
     }>;
     install: () => Promise<{ success: boolean; message: string }>;
     onInstallProgress: (callback: (event: { message: string }) => void) => () => void;
