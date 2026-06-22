@@ -24,6 +24,10 @@ function sampleTopLevel() {
   return { outline: [{ id: '1', title: '投标函', description: '投标函部分' }] };
 }
 
+function sampleMultiTopLevel() {
+  return { outline: [{ id: '1', title: '投标函', description: '投标函部分' }, { id: '2', title: '商务标', description: '商务标部分' }] };
+}
+
 function sampleChildren() {
   return { children: [{ id: '1.1', title: '二级', description: '二级', children: [{ id: '1.1.1', title: '三级', description: '三级' }] }] };
 }
@@ -41,7 +45,8 @@ function createFakeAiService(callLog) {
 
     let raw;
     if (systemMessage.includes('招标文件已经明确规定了投标文件的组成')) {
-      raw = sampleTopLevel(); // 招标格式优先：一级目录骨架
+      // 场景4多条格式引用时返回两个一级条目
+      raw = userMessages.includes('投标函') && userMessages.includes('商务标') && userMessages.includes('第六章格式2') ? sampleMultiTopLevel() : sampleTopLevel(); // 招标格式优先：一级目录骨架
     } else if (systemMessage.includes('生成二级和三级目录') || options.progressLabel?.includes('子目录')) {
       raw = sampleChildren();
     } else if (systemMessage.includes('提取适合作为技术标一级目录的评分大类')) {
@@ -103,12 +108,12 @@ async function run(storedPlan, mode, tenderMarkdown) {
 }
 
 async function main() {
-  // 场景 1：招标文件规定了投标文件组成 -> 走招标格式优先骨架
+  // 场景 1：招标文件规定了投标文件组成（含格式引用）-> 走招标格式优先骨架 + format_ref 注入
   {
     const storedPlan = baseStoredPlan({
       bidAnalysisTasks: {
         ...baseStoredPlan().bidAnalysisTasks,
-        bidFileStructure: { id: 'bidFileStructure', label: '投标文件组成与格式', status: 'success', content: '1. 投标函\n2. 规划设计方案\n按第六章格式编写' },
+        bidFileStructure: { id: 'bidFileStructure', label: '投标文件组成与格式', status: 'success', content: '1. 投标函 — 按第六章格式1编写\n2. 规划设计方案' },
       },
     });
     const { callLog, finalPlan } = await run(storedPlan, 'aligned', '招标文件原文……投标文件组成……');
@@ -128,7 +133,15 @@ async function main() {
       childCall.user.includes('投标函'),
       '场景1子目录生成消息应携带当前一级条目标题（父条目）',
     );
-    console.log('[场景1] 招标规定组成 -> 招标格式优先骨架 + 子目录携带组成/格式与父条目：通过');
+    // 阶段三深化断言：outline 节点应携带 format_ref；子目录 prompt 应包含格式引用提示
+    const topItem = (finalPlan.outlineData.outline || [])[0];
+    assert.ok(topItem, '场景1应有至少一个一级目录');
+    assert.equal(topItem.format_ref, '按第六章格式1编写', '场景1一级目录应携带 format_ref（格式引用）');
+    assert.ok(
+      childCall.user.includes('按第六章格式1编写'),
+      '场景1子目录生成消息应包含格式引用提示',
+    );
+    console.log('[场景1] 招标规定组成 + 格式引用 -> format_ref 注入 + 子目录 prompt 增强：通过');
   }
 
   // 场景 2：招标文件未规定组成（aligned）-> 回退评分对齐
@@ -156,6 +169,28 @@ async function main() {
     assert.ok(!usedTenderStructure, '场景3不应走招标格式优先骨架');
     assert.ok(usedFree, '场景3应回退到自由生成（freeWorkflow）');
     console.log('[场景3] 无组成解析项(free) -> 回退自由生成：通过');
+  }
+
+  // 场景 4：bidFileStructure 含多条格式引用 -> 不同条目应有不同 format_ref
+  {
+    const storedPlan = baseStoredPlan({
+      bidAnalysisTasks: {
+        ...baseStoredPlan().bidAnalysisTasks,
+        bidFileStructure: { id: 'bidFileStructure', label: '投标文件组成与格式', status: 'success', content: '1. 投标函 — 按第六章格式1编写\n2. 商务标 — 按第六章格式2编写' },
+      },
+    });
+    const { callLog, finalPlan } = await run(storedPlan, 'aligned', '招标文件原文……');
+    assert.ok(finalPlan.outlineData && (finalPlan.outlineData.outline || []).length >= 2, '场景4应生成至少两个一级目录');
+    const items = finalPlan.outlineData.outline;
+    // 两个条目应有不同 format_ref
+    assert.equal(items[0].format_ref, '按第六章格式1编写', '场景4第一个条目应有 format_ref 格式1');
+    assert.equal(items[1].format_ref, '按第六章格式2编写', '场景4第二个条目应有 format_ref 格式2');
+    // 子目录 prompt 应包含对应格式引用
+    const childCalls = callLog.filter((c) => (c.label || '').includes('子目录'));
+    assert.ok(childCalls.length >= 2, '场景4应有两次子目录生成调用');
+    assert.ok(childCalls[0].user.includes('按第六章格式1编写'), '场景4第一次子目录应包含格式1引用');
+    assert.ok(childCalls[1].user.includes('按第六章格式2编写'), '场景4第二次子目录应包含格式2引用');
+    console.log('[场景4] 多条格式引用 -> 不同条目 format_ref 独立 + 子目录 prompt 分别增强：通过');
   }
 
   console.log('\n大纲招标格式优先路由冒烟：全部通过');

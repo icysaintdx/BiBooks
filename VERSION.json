@@ -1,10 +1,10 @@
 {
-  "version": "v0.15.0",
-  "codename": "招标驱动表单版",
-  "releaseDate": "2026-06-22T20:00:00",
+  "version": "v0.16.0",
+  "codename": "大纲格式深化版",
+  "releaseDate": "2026-06-22T21:30:00",
   "docs": {
-    "total": 16,
-    "feature": 4,
+    "total": 17,
+    "feature": 5,
     "bugfix": 1,
     "version": 0,
     "api": 1,

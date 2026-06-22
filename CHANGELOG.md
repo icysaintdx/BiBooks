@@ -1,5 +1,22 @@
 # 更新日志
 
+## [v0.16.0] - 2026-06-22 21:30
+**版本代号**: 大纲格式深化版
+**文档总数**: 17
+
+### 🆕 新增功能
+#### 大纲格式渠道再深化 ⭐
+- **功能**: OutlineItem 新增 format_ref 字段存储格式来源引用；新增 parseFormatRefsFromBidFileStructure() 正则解析 bidFileStructure 提取"条目→格式引用"映射；tenderStructureWorkflow 遍历一级条目时附加 format_ref；子目录生成 prompt 当 format_ref 存在时追加格式引用提示；新增 formatTemplateTables 解析项从招标原文提取格式范本表格正文
+- **位置**: `client/electron/services/outlineGenerationTask.cjs`（parseFormatRefs + tenderStructureWorkflow + 子目录 prompt）、`client/electron/services/bidAnalysisTask.cjs`（formatTemplateTables 解析项）
+- **文档**: [大纲格式渠道深化已完成](docs/feature/大纲格式渠道深化已完成.md)
+- **文件**: `client/src/shared/types/outline.ts` `client/electron/services/outlineGenerationTask.cjs` `client/electron/services/bidAnalysisTask.cjs` `client/src/features/technical-plan/services/bidAnalysisWorkflow.ts` `client/scripts/outline-tender-format-smoke.cjs`
+
+### 📚 文档更新
+- [大纲格式渠道深化已完成](docs/feature/大纲格式渠道深化已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（大纲格式渠道深化移至已落地）⭐
+
+---
+
 ## [v0.15.0] - 2026-06-22 20:00
 **版本代号**: 招标驱动表单版
 **文档总数**: 16

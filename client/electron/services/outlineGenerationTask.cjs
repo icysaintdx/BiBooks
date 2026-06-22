@@ -337,7 +337,7 @@ ${buildEvidenceBoundaryInstruction()}`;
     { role: 'user', content: `招标文件规定的投标文件组成与格式（最高优先级，必须严格遵循）：\n${bidFileStructure}` },
     ...(overview ? [{ role: 'user', content: `项目概述（辅助信息）：\n${overview}` }] : []),
     ...(requirements ? [{ role: 'user', content: `技术评分要求（辅助信息，用于补全 description）：\n${requirements}` }] : []),
-    { role: 'user', content: `当前固定一级目录（请仅围绕该条目在招标文件中对应的组成/格式要求展开）：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}` },
+    { role: 'user', content: `当前固定一级目录（请仅围绕该条目在招标文件中对应的组成/格式要求展开）：\n编号：${parentItem.id}\n标题：${parentItem.title}\n描述：${parentItem.description || ''}${parentItem.format_ref ? `\n格式要求：招标要求本章${parentItem.format_ref}，请严格遵循该格式范本展开子目录` : ''}` },
   ];
   messages.push({ role: 'user', content: `请仅生成该一级目录下的二级、三级目录，一级目录标题必须保持为当前给定标题，二三级目录需贴合招标文件对“${parentItem.title}”规定的内容与格式，返回格式必须是 {"children": [...]}。${formatSuggestions(suggestions)}` });
   return messages;
@@ -492,6 +492,9 @@ function normalizeOutlineItem(item, path = 'outline[]', allowedKnowledgeIds) {
   }
   if (raw.content !== undefined && raw.content !== null) {
     normalized.content = String(raw.content);
+  }
+  if (raw.format_ref !== undefined && raw.format_ref !== null) {
+    normalized.format_ref = String(raw.format_ref);
   }
   const knowledgeItemIds = normalizeKnowledgeItemIds(raw.knowledge_item_ids, allowedKnowledgeIds);
   if (knowledgeItemIds.length) {
@@ -909,6 +912,31 @@ async function generateFallback(aiService, payload, suggestions, log, progressRa
   return outline;
 }
 
+// 从 bidFileStructure（Markdown 有序列表）中解析"条目标题→格式引用"映射。
+// 示例输入: "1. 投标函 — 按第六章格式1编写\n2. 规划设计方案\n3. 商务标 — 按第六章格式2编写"
+// 示例输出: Map { "投标函" → "按第六章格式1编写", "商务标" → "按第六章格式2编写" }
+// 解析失败或无格式引用时返回空 Map（回退现有行为，不阻塞大纲生成）。
+function parseFormatRefsFromBidFileStructure(bidFileStructure) {
+  const map = new Map();
+  if (!bidFileStructure || typeof bidFileStructure !== 'string') return map;
+  try {
+    for (const line of bidFileStructure.split('\n')) {
+      const trimmed = line.trim();
+      // 匹配 "1. 标题 — 格式引用" 或 "1. 标题"（无格式引用）
+      const match = trimmed.match(/^\d+\.\s*(.+?)(?:\s*[—–\-]\s*(.+))?$/);
+      if (!match) continue;
+      const title = match[1].trim();
+      const formatRef = match[2] ? match[2].trim() : '';
+      if (title && formatRef && !/没有提及|未提及/.test(formatRef)) {
+        map.set(title, formatRef);
+      }
+    }
+  } catch {
+    // 解析失败返回空 map，回退现有行为
+  }
+  return map;
+}
+
 // 招标格式优先：以招标文件规定的投标文件组成为一级目录骨架，再补全二三级目录
 async function generateTenderStructureTopLevel(aiService, payload, suggestions, log) {
   return collectJson(aiService, {
@@ -925,15 +953,20 @@ async function generateTenderStructureTopLevel(aiService, payload, suggestions, 
 async function tenderStructureWorkflow(aiService, payload, log) {
   log('检测到招标文件已规定投标文件组成，按招标格式优先生成一级目录骨架。', 10);
   const top = await generateTenderStructureTopLevel(aiService, payload, undefined, log);
+  // 从 bidFileStructure 解析"条目标题→格式引用"映射，附加到一级条目的 format_ref 字段
+  const formatRefMap = parseFormatRefsFromBidFileStructure(payload.bidFileStructure);
   log('一级目录骨架生成完成，正在按骨架补全二三级目录。', 30);
   const assembled = [];
   const progressRange = { start: 30, end: 90 };
   for (const [index, item] of top.outline.entries()) {
     const progress = progressRange.start + Math.round((index / Math.max(top.outline.length, 1)) * (progressRange.end - progressRange.start));
     log(`正在生成第 ${index + 1}/${top.outline.length} 个一级目录的二三级目录：${item.title || '未命名章节'}。`, progress);
-    const childrenResponse = await generateTenderStructureChildren(aiService, payload, item, undefined, log, progress);
+    // 按标题匹配格式引用（模糊匹配：标题包含在 map key 中，或 map key 包含在标题中）
+    const formatRef = formatRefMap.get(item.title) || [...formatRefMap.entries()].find(([k]) => item.title?.includes(k) || k.includes(item.title || ''))?.[1] || '';
+    const itemWithFormat = formatRef ? { ...item, format_ref: formatRef } : item;
+    const childrenResponse = await generateTenderStructureChildren(aiService, payload, itemWithFormat, undefined, log, progress);
     const children = childrenResponse.children || [];
-    assembled.push({ id: item.id, title: item.title, description: item.description, ...(children.length ? { children } : {}) });
+    assembled.push({ id: item.id, title: item.title, description: item.description, format_ref: formatRef || undefined, ...(children.length ? { children } : {}) });
   }
   log('招标格式目录生成完成，正在整理目录编号。', progressRange.end);
   const outline = normalizeOutlineResponse({ outline: renumber(assembled) }, new Set());
