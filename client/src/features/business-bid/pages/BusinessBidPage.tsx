@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '../../../shared/ui';
 import type { BidProjectSummary, RepairTaskInput } from '../../../shared/types/ipc';
 import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
-import { buildCommercialTenderSeed, loadTenderPlanState } from '../../../shared/utils/tenderLinkage';
+import { buildCommercialTenderSeed, buildFormSchema, loadTenderPlanState, type BidFormSchema } from '../../../shared/utils/tenderLinkage';
 
 type BidStep = 'setup' | 'sections' | 'result';
 
@@ -194,6 +194,10 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
     bankCredit: '',
     creditRating: '',
   });
+  // 招标驱动的表单字段 schema（缺失时为硬编码兜底，fromTender=false）
+  const [formSchema, setFormSchema] = useState<BidFormSchema | null>(null);
+  // 招标要求的额外服务字段（key→value，由 schema 动态驱动）
+  const [extraServiceFields, setExtraServiceFields] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -214,7 +218,21 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
         setTenderQualification(tenderSeed.qualificationReview);
         setTenderBusinessScoring(tenderSeed.businessScoring);
         if (templatesData) setPriceTemplates(templatesData as Record<string, PriceTemplate>);
-        if (qualData) {
+        // 招标驱动的表单 schema：资质/服务字段/业绩要求由招标解析结果动态生成，缺失时回退硬编码
+        const schema = buildFormSchema(tenderState);
+        setFormSchema(schema);
+        // 资质初值：schema 有招标资质清单时优先用（标记 required/format_ref），否则回退后端默认资质类型
+        if (schema.commercial.qualifications.length > 0) {
+          setQualifications(schema.commercial.qualifications.map((qual, index) => ({
+            id: `schema_${index}`,
+            name: qual.name,
+            required: qual.required,
+            status: 'pending',
+            certificateNo: '',
+            validFrom: '',
+            validTo: '',
+          })));
+        } else if (qualData) {
           setQualifications((qualData as QualType[]).map((item) => ({
             ...item,
             status: 'pending',
@@ -222,6 +240,16 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
             validFrom: '',
             validTo: '',
           })));
+        }
+        // 初始化招标要求的额外服务字段（schema 动态新增的字段，如"售后服务方案"等）
+        if (schema.commercial.serviceFields.length > 0) {
+          const initial: Record<string, string> = {};
+          for (const field of schema.commercial.serviceFields) {
+            if (field.key !== 'warranty_period' && field.key !== 'response_time') {
+              initial[field.key] = '';
+            }
+          }
+          if (Object.keys(initial).length > 0) setExtraServiceFields(initial);
         }
         if (listData) setSavedBids(listData as any[]);
       } catch (error) {
@@ -244,7 +272,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
         priceOptions: { priceType, totalAmount, items: priceItems },
         qualificationOptions: { companyName, qualifications },
         performanceOptions: { companyName, projects },
-        serviceOptions: { projectName, warrantyPeriod, responseTime },
+        serviceOptions: { projectName, warrantyPeriod, responseTime, extraServiceFields },
         financialOptions: { companyName, financialData },
       }) as CommercialBidResult | undefined;
       if (!bid) return;
@@ -261,6 +289,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
         warrantyPeriod,
         responseTime,
         financialData,
+        extraServiceFields,
       };
       const saved = await window.yibiao?.commercialBid.save({
         id,
@@ -297,7 +326,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
     } finally {
       setLoading(false);
     }
-  }, [companyName, currentProject, financialData, priceItems, priceType, projectName, projects, qualifications, responseTime, showToast, totalAmount, warrantyPeriod]);
+  }, [companyName, currentProject, extraServiceFields, financialData, formSchema, priceItems, priceType, projectName, projects, qualifications, responseTime, showToast, totalAmount, warrantyPeriod]);
 
   const handleCopyReport = useCallback(() => {
     navigator.clipboard.writeText(report)
@@ -349,6 +378,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
                         if (form.warrantyPeriod) setWarrantyPeriod(form.warrantyPeriod);
                         if (form.responseTime) setResponseTime(form.responseTime);
                         if (form.financialData) setFinancialData(form.financialData);
+                        if (form.extraServiceFields && typeof form.extraServiceFields === 'object') setExtraServiceFields(form.extraServiceFields);
                       }
                       if (item.result) {
                         setResult(item.result);
@@ -417,7 +447,7 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
 
           {step === 'sections' && (
             <section className="module-stack">
-              {(tenderQualification || tenderBusinessScoring) && (
+              {(tenderQualification || tenderBusinessScoring || formSchema?.fromTender) && (
                 <details className="module-panel business-tender-reference">
                   <summary className="module-section-title">招标文件要求参考（资格性审查 / 商务评分）</summary>
                   {tenderQualification && (
@@ -430,6 +460,27 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
                     <div className="business-tender-reference-block">
                       <strong>商务评分要求</strong>
                       <pre className="module-previewer">{tenderBusinessScoring}</pre>
+                    </div>
+                  )}
+                  {formSchema?.fromTender && (
+                    <div className="business-tender-reference-block">
+                      <strong>招标要求字段清单（机读）</strong>
+                      <ul className="business-schema-field-list">
+                        {formSchema.commercial.qualifications.length > 0 && (
+                          <li>资质材料：{formSchema.commercial.qualifications.map((q) => `${q.name}${q.required ? '(必填)' : ''}${q.formRef ? ` [${q.formRef}]` : ''}`).join('、')}</li>
+                        )}
+                        {formSchema.commercial.performance.required && (
+                          <li>业绩要求：至少 {formSchema.commercial.performance.minCount} 项{formSchema.commercial.performance.note ? ` —— ${formSchema.commercial.performance.note}` : ''}</li>
+                        )}
+                        {formSchema.commercial.serviceFields.length > 0 && (
+                          <li>服务字段：{formSchema.commercial.serviceFields.map((f) => `${f.label}${f.required ? '(必填)' : ''}`).join('、')}</li>
+                        )}
+                        {formSchema.commercial.priceNote && <li>报价说明：{formSchema.commercial.priceNote}</li>}
+                        {formSchema.pricing.currency && <li>报价币种：{formSchema.pricing.currency}</li>}
+                        {formSchema.pricing.taxRate !== null && <li>税率：{`${Math.round(formSchema.pricing.taxRate * 100)}%`}</li>}
+                        {formSchema.pricing.priceType && <li>报价方式：{formSchema.pricing.priceType}</li>}
+                        {formSchema.pricing.note && <li>报价口径：{formSchema.pricing.note}</li>}
+                      </ul>
                     </div>
                   )}
                 </details>
@@ -455,23 +506,29 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
 
               <Panel title="资质证明材料">
                 <div className="business-row-list">
-                  {qualifications.map((item, index) => (
-                    <div className="business-qualification-row" key={item.id}>
-                      <span>{item.name}{item.required && <b> *</b>}</span>
-                      <input value={item.certificateNo} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, certificateNo: event.target.value } : candidate))} placeholder="证书编号" />
-                      <input type="date" value={item.validFrom} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, validFrom: event.target.value } : candidate))} />
-                      <input type="date" value={item.validTo} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, validTo: event.target.value } : candidate))} />
-                      <select value={item.status} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, status: event.target.value } : candidate))}>
-                        <option value="pending">待准备</option>
-                        <option value="completed">已完成</option>
-                        <option value="na">不适用</option>
-                      </select>
-                    </div>
-                  ))}
+                  {qualifications.map((item, index) => {
+                    const schemaQual = formSchema?.commercial.qualifications[index];
+                    return (
+                      <div className="business-qualification-row" key={item.id}>
+                        <span>{item.name}{item.required && <b> *</b>}{schemaQual?.formRef ? <small className="business-schema-hint">[{schemaQual.formRef}]</small> : null}</span>
+                        <input value={item.certificateNo} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, certificateNo: event.target.value } : candidate))} placeholder="证书编号" />
+                        <input type="date" value={item.validFrom} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, validFrom: event.target.value } : candidate))} />
+                        <input type="date" value={item.validTo} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, validTo: event.target.value } : candidate))} />
+                        <select value={item.status} onChange={(event) => setQualifications((prev) => prev.map((candidate, i) => i === index ? { ...candidate, status: event.target.value } : candidate))}>
+                          <option value="pending">待准备</option>
+                          <option value="completed">已完成</option>
+                          <option value="na">不适用</option>
+                        </select>
+                      </div>
+                    );
+                  })}
                 </div>
               </Panel>
 
               <Panel title="业绩证明材料">
+                {formSchema?.commercial.performance.required && (
+                  <p className="business-schema-requirement">招标要求：至少 {formSchema.commercial.performance.minCount} 项业绩{formSchema.commercial.performance.note ? ` —— ${formSchema.commercial.performance.note}` : ''}</p>
+                )}
                 <button type="button" className="secondary-action module-action" onClick={() => setProjects((prev) => [...prev, { name: '', client: '', contractAmount: 0, completionDate: '', description: '' }])}>添加业绩</button>
                 <div className="business-row-list">
                   {projects.map((item, index) => (
@@ -493,6 +550,14 @@ function BusinessBidPage({ currentProject }: BusinessBidPageProps) {
                   <Field label="响应时间"><input value={responseTime} onChange={(event) => setResponseTime(event.target.value)} /></Field>
                   <Field label="银行授信"><input value={financialData.bankCredit} onChange={(event) => setFinancialData((prev) => ({ ...prev, bankCredit: event.target.value }))} /></Field>
                   <Field label="信用评级"><input value={financialData.creditRating} onChange={(event) => setFinancialData((prev) => ({ ...prev, creditRating: event.target.value }))} /></Field>
+                  {Object.entries(extraServiceFields).map(([key, value]) => {
+                    const schemaField = formSchema?.commercial.serviceFields.find((f) => f.key === key);
+                    return (
+                      <Field key={key} label={schemaField?.label || key}>
+                        <input value={value} onChange={(event) => setExtraServiceFields((prev) => ({ ...prev, [key]: event.target.value }))} />
+                      </Field>
+                    );
+                  })}
                 </div>
               </Panel>
 

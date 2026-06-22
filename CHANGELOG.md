@@ -1,5 +1,22 @@
 # 更新日志
 
+## [v0.15.0] - 2026-06-22 20:00
+**版本代号**: 招标驱动表单版
+**文档总数**: 16
+
+### 🆕 新增功能
+#### 招标驱动表单字段（商务标 + 报价） ⭐
+- **功能**: 新增结构化解析项 `bidFileStructureSchema`（output:'json'），把招标对商务标资质/业绩/服务字段、报价税率/币种/报价方式的要求整理为机读 JSON，驱动表单字段动态生成。招标值优先，缺失回退硬编码默认。商务标资质初值由 schema 驱动、业绩 Panel 显示招标最低数量要求、售后区叠加动态服务字段；报价配置型字段（税率/币种）由 schema 驱动默认值并标注招标建议值。核心明细表（报价项/分类/大写金额）和后端生成逻辑不变
+- **位置**: `client/electron/services/bidAnalysisTask.cjs`（新增解析项）、`client/src/shared/utils/tenderLinkage.ts`（schema 解析与兜底合并）、两个表单页面
+- **文档**: [商务标报价动态字段schema化已完成](docs/feature/商务标报价动态字段schema化已完成.md)
+- **文件**: `client/electron/services/bidAnalysisTask.cjs` `client/src/features/technical-plan/services/bidAnalysisWorkflow.ts` `client/src/shared/utils/tenderLinkage.ts` `client/src/features/business-bid/pages/BusinessBidPage.tsx` `client/src/features/pricing/pages/PricingPage.tsx`
+
+### 📚 文档更新
+- [商务标报价动态字段schema化已完成](docs/feature/商务标报价动态字段schema化已完成.md) ⭐
+- [投标文件生成流程统一编排技术设计文档](docs/technical/投标文件生成流程统一编排技术设计文档.md)（动态字段 schema 化移至已落地）⭐
+
+---
+
 ## [v0.14.0] - 2026-06-22 18:30
 **版本代号**: 编排联动与导出校验版
 **文档总数**: 15

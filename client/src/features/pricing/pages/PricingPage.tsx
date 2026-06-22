@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../shared/ui';
 import type { BidProjectSummary, RepairTaskInput } from '../../../shared/types/ipc';
 import { markRepairTasksForReview, notifyRepairTasksChanged } from '../../../shared/utils/repairTaskReview';
-import { buildPricingTenderSeed, loadTenderPlanState } from '../../../shared/utils/tenderLinkage';
+import { buildFormSchema, buildPricingTenderSeed, loadTenderPlanState, type BidFormSchema } from '../../../shared/utils/tenderLinkage';
 
 interface PricingItem {
   id: string;
@@ -22,6 +22,7 @@ interface PricingSheet {
   projectName: string;
   taxRate: number;
   discountRate: number;
+  currency: string;
   items: PricingItem[];
   notes: string;
 }
@@ -64,12 +65,13 @@ function formatPricingError(error: unknown) {
   return `加载报价单失败：${message}`;
 }
 
-function emptySheet(projectName = ''): PricingSheet {
+function emptySheet(projectName = '', defaults?: { taxRate?: number; currency?: string }): PricingSheet {
   return {
     id: createId(),
     projectName,
-    taxRate: 0.13,
+    taxRate: defaults?.taxRate ?? 0.13,
     discountRate: 0,
+    currency: defaults?.currency || 'CNY',
     items: [],
     notes: '',
   };
@@ -82,6 +84,7 @@ function normalizeRecord(record: Partial<PricingSheetRecord>): PricingSheetRecor
     projectName: record.projectName || '',
     taxRate: Number(record.taxRate ?? 0.13),
     discountRate: Number(record.discountRate ?? 0),
+    currency: (record as any).currency || 'CNY',
     items: Array.isArray(record.items) ? record.items.map((item) => ({
       id: item.id || createId(),
       category: item.category || CATEGORIES[0],
@@ -187,6 +190,7 @@ function PricingPage({ currentProject }: PricingPageProps) {
   const [currentId, setCurrentId] = useState('');
   const [currentProjectName, setCurrentProjectName] = useState('');
   const [tenderPricingNote, setTenderPricingNote] = useState('');
+  const [tenderSchema, setTenderSchema] = useState<BidFormSchema | null>(null);
   const [sheet, setSheet] = useState<PricingSheet>(emptySheet());
   const [editingItem, setEditingItem] = useState<PricingItem | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -212,13 +216,16 @@ function PricingPage({ currentProject }: PricingPageProps) {
       ]);
       // 项目名优先用当前项目 prop，缺失再回退招标解析的项目信息
       const tenderSeed = buildPricingTenderSeed(tenderState);
+      const schema = buildFormSchema(tenderState);
+      setTenderSchema(schema);
       const fallbackName = currentProject?.name || tenderSeed.projectName || '';
       setCurrentProjectName(fallbackName);
       setTenderPricingNote(tenderSeed.pricingNote);
 
       const normalized = Array.isArray(records) ? records.map((record) => normalizeRecord(record as Partial<PricingSheetRecord>)) : [];
       setSheets(normalized);
-      const first = normalized[0] || emptySheet(fallbackName);
+      // 已有草稿恢复时用草稿数据；新建空表时用招标 schema 驱动默认值（税率/币种）
+      const first = normalized[0] || emptySheet(fallbackName, { taxRate: tenderSeed.taxRate ?? undefined, currency: tenderSeed.currency || undefined });
       setCurrentId(first.id);
       setSheet({
         id: first.id,
@@ -226,6 +233,7 @@ function PricingPage({ currentProject }: PricingPageProps) {
         projectName: first.projectName || fallbackName,
         taxRate: first.taxRate,
         discountRate: first.discountRate,
+        currency: first.currency || tenderSeed.currency || 'CNY',
         items: first.items,
         notes: first.notes,
       });
@@ -252,18 +260,19 @@ function PricingPage({ currentProject }: PricingPageProps) {
       projectName: record.projectName,
       taxRate: record.taxRate,
       discountRate: record.discountRate,
+      currency: record.currency || 'CNY',
       items: record.items,
       notes: record.notes,
     });
   }, [sheets]);
 
   const handleNewSheet = useCallback(() => {
-    const fresh = { ...emptySheet(currentProjectName), bidProjectId: currentProject?.id || '' };
+    const fresh = { ...emptySheet(currentProjectName, { taxRate: tenderSchema?.pricing.taxRate ?? undefined, currency: tenderSchema?.pricing.currency || undefined }), bidProjectId: currentProject?.id || '' };
     setCurrentId(fresh.id);
     setSheet(fresh);
     setEditingItem(null);
     setShowAddDialog(false);
-  }, [currentProject, currentProjectName]);
+  }, [currentProject, currentProjectName, tenderSchema]);
 
   const handleSaveSheet = useCallback(async () => {
     try {
@@ -350,10 +359,18 @@ function PricingPage({ currentProject }: PricingPageProps) {
         </div>
       </header>
 
-      {tenderPricingNote && (
+      {(tenderPricingNote || tenderSchema?.fromTender) && (
         <details className="module-panel pricing-tender-reference">
           <summary className="module-section-title">招标文件报价口径参考</summary>
-          <pre className="module-previewer">{tenderPricingNote}</pre>
+          {tenderPricingNote && <pre className="module-previewer">{tenderPricingNote}</pre>}
+          {tenderSchema?.fromTender && (
+            <ul className="business-schema-field-list">
+              {tenderSchema.pricing.currency && <li>报价币种：{tenderSchema.pricing.currency}</li>}
+              {tenderSchema.pricing.taxRate !== null && <li>税率：{Math.round(tenderSchema.pricing.taxRate * 100)}%</li>}
+              {tenderSchema.pricing.priceType && <li>报价方式：{tenderSchema.pricing.priceType}</li>}
+              {tenderSchema.pricing.note && <li>报价口径：{tenderSchema.pricing.note}</li>}
+            </ul>
+          )}
         </details>
       )}
 
@@ -384,7 +401,7 @@ function PricingPage({ currentProject }: PricingPageProps) {
                   />
                 </label>
                 <label className="module-field">
-                  <span>税率</span>
+                  <span>税率{tenderSchema?.pricing.taxRate !== null && tenderSchema?.pricing.taxRate !== undefined ? `（招标建议 ${Math.round(tenderSchema.pricing.taxRate * 100)}%）` : ''}</span>
                   <select value={sheet.taxRate} onChange={(event) => setSheet((prev) => ({ ...prev, taxRate: Number(event.target.value) }))}>
                     <option value={0}>免税</option>
                     <option value={0.03}>3%</option>

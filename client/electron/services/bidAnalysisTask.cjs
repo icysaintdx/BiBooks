@@ -112,6 +112,39 @@ const tasks = [
 4. 如果原文未规定投标文件组成或格式，写“原文未提及投标文件组成与格式”。
 5. 使用 Markdown 有序列表，不要使用表格。仅输出整理结果。`,
   },
+  {
+    id: 'bidFileStructureSchema', label: '投标文件字段结构（机读）', required: false, output: 'json',
+    description: '把招标对商务标、报价部分的字段要求整理为结构化 JSON，用于动态生成商务标 / 报价表单字段。',
+    prompt: () => `任务：根据招标文件原文，整理出投标人编制“商务标”和“报价部分”时需要填写或提交的字段要求，输出为结构化 JSON，供系统动态生成表单字段。
+
+工作要求：
+1. 严格基于招标文件原文，只整理原文明确要求或规定的字段；原文未规定的字段填字符串“没有提及”。
+2. commercial.qualifications 数组：列出招标要求投标人提供的资质 / 证明材料（如营业执照、资质证书、信誉证明等），required 表示是否为强制项，format_ref 注明原文要求的格式来源（如“第六章 格式X”），原文未规定格式来源时填“没有提及”。条目数量按招标实际要求增减，原文未规定任何资质时给空数组 []。
+3. commercial.performance：招标对业绩 / 类似项目经验的要求，required 是否强制，min_count 招标要求的最少业绩数量（无明确数量时填 0），note 原文相关要求摘要。
+4. commercial.service_fields 数组：招标要求在商务标中承诺或填写的服务类字段（如质保期、响应时间、售后服务方案等），key 用英文小写下划线命名，label 用中文，required 是否强制。原文未规定时给空数组 []。
+5. commercial.price_note：招标对投标报价说明部分的要求摘要（原文未提及填“没有提及”）。
+6. pricing.currency：招标规定的报价币种（如“CNY”“人民币”，未规定填“没有提及”）。
+7. pricing.tax_rate：招标规定的税率，用 0~1 之间的小数表示（如增值税 13% 填 0.13），原文未规定填“没有提及”。
+8. pricing.price_type：招标规定的报价方式（如“lumpSum”总价包干 / “unitPrice”单价 / 原文表述），未规定填“没有提及”。
+9. pricing.note：招标对报价口径、是否含税、报价范围等要求的摘要（未提及填“没有提及”）。
+10. 输出必须是合法 JSON，只输出 JSON，不要输出解释、过程、代码块标记。
+
+JSON 结构示例（按招标实际内容填充，数组条目数量可增减）：
+{
+  "commercial": {
+    "qualifications": [{"name":"营业执照","required":true,"format_ref":"第六章 格式1"}],
+    "performance": {"required":true,"min_count":3,"note":"近三年同类项目业绩"},
+    "service_fields": [{"key":"warranty_period","label":"质保期","required":true}],
+    "price_note": "报价说明部分要求摘要"
+  },
+  "pricing": {
+    "currency": "CNY",
+    "tax_rate": 0.13,
+    "price_type": "lumpSum",
+    "note": "报价口径 / 含税要求摘要"
+  }
+}`,
+  },
 ];
 
 function getBidAnalysisTasks(mode) {
